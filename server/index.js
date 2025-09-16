@@ -18,6 +18,7 @@ const productRoutes = require('./routes/products');
 const orderRoutes = require('./routes/orders');
 const reviewRoutes = require('./routes/reviews');
 const messageRoutes = require('./routes/messages');
+const trendingRoutes = require('./routes/trending');
 
 const app = express();
 const server = http.createServer(app);
@@ -34,10 +35,7 @@ const io = socketIo(server, {
 app.set('io', io);
 
 // MongoDB connection
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
+mongoose.connect(process.env.MONGODB_URI)
 .then(() => console.log('MongoDB connected successfully'))
 .catch(err => console.log('MongoDB connection error:', err));
 

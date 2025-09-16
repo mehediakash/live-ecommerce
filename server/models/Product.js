@@ -6,6 +6,32 @@ const productSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  stats: {
+  views: {
+    type: Number,
+    default: 0
+  },
+  wishlists: {
+    type: Number,
+    default: 0
+  },
+  sales: {
+    type: Number,
+    default: 0
+  },
+  engagement: {  // Add this field
+    type: Number,
+    default: 0
+  }
+},
+isTrending: {  // Add this field
+  type: Boolean,
+  default: false
+},
+trendingScore: {  // Add this field
+  type: Number,
+  default: 0
+},
   description: {
     type: String,
     required: true
