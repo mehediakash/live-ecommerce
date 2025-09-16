@@ -6,23 +6,11 @@ const productSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
-  stats: {
-  views: {
-    type: Number,
-    default: 0
-  },
-  wishlists: {
-    type: Number,
-    default: 0
-  },
-  sales: {
-    type: Number,
-    default: 0
-  },
-  engagement: {  // Add this field
-    type: Number,
-    default: 0
-  }
+stats: {
+  views: { type: Number, default: 0 },
+  wishlists: { type: Number, default: 0 },
+  sales: { type: Number, default: 0 },
+  engagement: { type: Number, default: 0 } // Add this for trending calculation
 },
 isTrending: {  // Add this field
   type: Boolean,
@@ -44,10 +32,11 @@ trendingScore: {  // Add this field
     url: String,
     thumbnail: String
   }],
-  category: {
-    type: String,
-    required: true
-  },
+ category: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'Category',
+  required: true
+},
   tags: [String],
   seller: {
     type: mongoose.Schema.Types.ObjectId,
@@ -66,22 +55,30 @@ trendingScore: {  // Add this field
     default: 'new'
   },
   variations: [{
-    type: {
-      type: String, // e.g., 'size', 'color'
-      required: true
-    },
-    name: {
-      type: String,
-      required: true
-    },
-    value: {
-      type: String,
-      required: true
-    },
-    price: Number,
-    quantity: Number,
-    sku: String
+  type: {
+    type: String, // e.g., 'size', 'color'
+    required: true
+  },
+  name: {
+    type: String,
+    required: true
+  },
+  value: {
+    type: String,
+    required: true
+  },
+  price: Number,
+  quantity: Number,
+  sku: String,
+  images: [{
+    url: String,
+    isPrimary: Boolean
   }],
+  videos: [{
+    url: String,
+    thumbnail: String
+  }]
+}],
   inventory: {
     totalQuantity: {
       type: Number,

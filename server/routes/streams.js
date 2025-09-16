@@ -2,6 +2,7 @@ const express = require('express');
 const streamController = require('../controllers/streamController');
 const authController = require('../controllers/authController');
 const upload = require('../middleware/upload');
+const { uploadConfigs } = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -10,18 +11,12 @@ router.use(authController.protect);
 router
   .route('/')
   .get(streamController.getAllStreams)
-  .post(
-    upload.single('thumbnail'),
-    streamController.createStream
-  );
+  .post('/', uploadConfigs.stream, streamController.createStream);
 
 router
   .route('/:id')
   .get(streamController.getStream)
-  .patch(
-    upload.single('thumbnail'),
-    streamController.updateStream
-  )
+  .patch('/:id', uploadConfigs.stream, streamController.updateStream)
   .delete(streamController.deleteStream);
 
 router.patch('/:id/start', streamController.startStream);

@@ -19,6 +19,10 @@ const orderRoutes = require('./routes/orders');
 const reviewRoutes = require('./routes/reviews');
 const messageRoutes = require('./routes/messages');
 const trendingRoutes = require('./routes/trending');
+const paymentRoutes = require('./routes/payments');
+const categoryRoutes = require('./routes/categories');
+const variationRoutes = require('./routes/variations');
+
 
 const app = express();
 const server = http.createServer(app);
@@ -55,6 +59,10 @@ app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/orders', orderRoutes);
 app.use('/api/v1/reviews', reviewRoutes);
 app.use('/api/v1/messages', messageRoutes);
+app.use('/api/v1/trending', trendingRoutes);
+app.use('/api/v1/payments', paymentRoutes);
+app.use('/api/v1/categories', categoryRoutes);
+app.use('/api/v1/products', variationRoutes);
 
 // Socket.io connections
 io.on('connection', (socket) => {

@@ -2,6 +2,115 @@ const Product = require('../models/Product');
 const User = require('../models/User');
 const catchAsync = require('../utils/catchAsync');
 
+// exports.createProduct = catchAsync(async (req, res, next) => {
+//   const {
+//     name,
+//     description,
+//     category,
+//     tags,
+//     price,
+//     originalPrice,
+//     costPrice,
+//     condition,
+//     inventory,
+//     variations,
+//     shipping,
+//     auction,
+//     buyItNow,
+//     bundle
+//   } = req.body;
+  
+//   // Parse JSON fields
+//   const parsedInventory = inventory ? JSON.parse(inventory) : {};
+//   const parsedVariations = variations ? JSON.parse(variations) : [];
+//   const parsedShipping = shipping ? JSON.parse(shipping) : {};
+//   const parsedAuction = auction ? JSON.parse(auction) : {};
+//   const parsedBuyItNow = buyItNow ? JSON.parse(buyItNow) : {};
+//   const parsedBundle = bundle ? JSON.parse(bundle) : {};
+  
+//   const productData = {
+//     name,
+//     description,
+//     category,
+//     tags: tags ? tags.split(',') : [],
+//     seller: req.user.id,
+//     price,
+//     originalPrice,
+//     costPrice,
+//     condition,
+//     inventory: parsedInventory,
+//     variations: parsedVariations,
+//     shipping: parsedShipping,
+//     auction: parsedAuction,
+//     buyItNow: parsedBuyItNow,
+//     bundle: parsedBundle
+//   };
+  
+//   // Handle images
+//   if (req.files && req.files.images) {
+//     productData.images = req.files.images.map(file => ({
+//       url: file.path,
+//       isPrimary: false
+//     }));
+    
+//     // Set first image as primary
+//     if (productData.images.length > 0) {
+//       productData.images[0].isPrimary = true;
+//     }
+//   }
+  
+//   // Handle videos
+//   if (req.files && req.files.videos) {
+//     productData.videos = req.files.videos.map(file => ({
+//       url: file.path,
+//       thumbnail: file.path // In a real app, you'd generate a thumbnail
+//     }));
+//   }
+
+//   // if (variations && Array.isArray(variations)) {
+//   //   productData.variations = variations.map((variation, index) => {
+//   //     if (req.files && req.files[`variation_${index}_images`]) {
+//   //       variation.images = req.files[`variation_${index}_images`].map(file => ({
+//   //         url: file.path,
+//   //         isPrimary: false
+//   //       }));
+//   //       if (variation.images.length > 0) {
+//   //         variation.images[0].isPrimary = true;
+//   //       }
+//   //     }
+//   //     return variation;
+//   //   });
+//   // }
+
+//     // Handle variation images
+//   if (parsedVariations.length > 0 && req.files) {
+//     productData.variations = parsedVariations.map((variation, index) => {
+//       const variationField = `variation_${index}_images`;
+//       if (req.files[variationField]) {
+//         variation.images = req.files[variationField].map(file => ({
+//           url: file.path,
+//           isPrimary: false
+//         }));
+        
+//         // Set first image as primary for the variation
+//         if (variation.images.length > 0) {
+//           variation.images[0].isPrimary = true;
+//         }
+//       }
+//       return variation;
+//     });
+//   }
+  
+//   const product = await Product.create(productData);
+  
+//   res.status(201).json({
+//     status: 'success',
+//     data: {
+//       product
+//     }
+//   });
+// });
+
 exports.createProduct = catchAsync(async (req, res, next) => {
   const {
     name,
@@ -17,7 +126,8 @@ exports.createProduct = catchAsync(async (req, res, next) => {
     shipping,
     auction,
     buyItNow,
-    bundle
+    bundle,
+    status
   } = req.body;
   
   // Parse JSON fields
@@ -43,10 +153,11 @@ exports.createProduct = catchAsync(async (req, res, next) => {
     shipping: parsedShipping,
     auction: parsedAuction,
     buyItNow: parsedBuyItNow,
-    bundle: parsedBundle
+    bundle: parsedBundle,
+    status
   };
   
-  // Handle images
+  // Handle main product images
   if (req.files && req.files.images) {
     productData.images = req.files.images.map(file => ({
       url: file.path,
@@ -59,12 +170,31 @@ exports.createProduct = catchAsync(async (req, res, next) => {
     }
   }
   
-  // Handle videos
+  // Handle main product videos
   if (req.files && req.files.videos) {
     productData.videos = req.files.videos.map(file => ({
       url: file.path,
       thumbnail: file.path // In a real app, you'd generate a thumbnail
     }));
+  }
+  
+  // Handle variation images
+  if (parsedVariations.length > 0 && req.files) {
+    productData.variations = parsedVariations.map((variation, index) => {
+      const variationField = `variation_${index}_images`;
+      if (req.files[variationField]) {
+        variation.images = req.files[variationField].map(file => ({
+          url: file.path,
+          isPrimary: false
+        }));
+        
+        // Set first image as primary for the variation
+        if (variation.images.length > 0) {
+          variation.images[0].isPrimary = true;
+        }
+      }
+      return variation;
+    });
   }
   
   const product = await Product.create(productData);
@@ -76,6 +206,8 @@ exports.createProduct = catchAsync(async (req, res, next) => {
     }
   });
 });
+
+
 
 exports.getProduct = catchAsync(async (req, res, next) => {
   const product = await Product.findById(req.params.id)
@@ -223,6 +355,21 @@ exports.updateProduct = catchAsync(async (req, res, next) => {
     }));
     
     updateData.$push = { videos: { $each: newVideos } };
+  }
+
+  if (variations && Array.isArray(variations)) {
+    updateData.variations = variations.map((variation, index) => {
+      if (req.files && req.files[`variation_${index}_images`]) {
+        variation.images = req.files[`variation_${index}_images`].map(file => ({
+          url: file.path,
+          isPrimary: false
+        }));
+        if (variation.images.length > 0) {
+          variation.images[0].isPrimary = true;
+        }
+      }
+      return variation;
+    });
   }
   
   const updatedProduct = await Product.findByIdAndUpdate(

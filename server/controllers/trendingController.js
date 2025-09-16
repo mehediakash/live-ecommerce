@@ -1,82 +1,87 @@
 const Product = require('../models/Product');
 const catchAsync = require('../utils/catchAsync');
 
-// Calculate trending score based on views, sales, and engagement
-const calculateTrendingScore = (product) => {
-  const viewsWeight = 0.3;
-  const salesWeight = 0.4;
-  const engagementWeight = 0.3;
+exports.getTrendingProducts = catchAsync(async (req, res, next) => {
+  const { limit = 10, timeframe = 'week' } = req.query;
   
-  return (product.stats.views * viewsWeight) + 
-         (product.stats.sales * salesWeight) + 
-         (product.stats.engagement * engagementWeight);
-};
-
-// Update trending products (to be called periodically)
-exports.updateTrendingProducts = catchAsync(async () => {
-  const products = await Product.find({ status: 'active' });
+  let dateFilter = {};
+  const now = new Date();
   
-  for (const product of products) {
-    const trendingScore = calculateTrendingScore(product);
-    const isTrending = trendingScore > 50; // Threshold for trending
-    
-    await Product.findByIdAndUpdate(product._id, {
-      trendingScore,
-      isTrending
-    });
+  switch (timeframe) {
+    case 'day':
+      dateFilter = { createdAt: { $gte: new Date(now.setDate(now.getDate() - 1)) } };
+      break;
+    case 'week':
+      dateFilter = { createdAt: { $gte: new Date(now.setDate(now.getDate() - 7)) } };
+      break;
+    case 'month':
+      dateFilter = { createdAt: { $gte: new Date(now.setMonth(now.getMonth() - 1)) } };
+      break;
   }
   
-  console.log('Trending products updated successfully');
-});
-
-// Get trending products
-exports.getTrendingProducts = catchAsync(async (req, res, next) => {
-  const { page = 1, limit = 10, category } = req.query;
-  
-  const filter = { isTrending: true, status: 'active' };
-  if (category) filter.category = category;
-  
-  const products = await Product.find(filter)
-    .populate('seller', 'profile firstName lastName')
-    .sort({ trendingScore: -1, createdAt: -1 })
-    .limit(limit * 1)
-    .skip((page - 1) * limit);
-  
-  const total = await Product.countDocuments(filter);
-  
-  res.status(200).json({
-    status: 'success',
-    results: products.length,
-    data: {
-      products,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page
-    }
-  });
-});
-
-// Get popular categories based on trending products
-exports.getTrendingCategories = catchAsync(async (req, res, next) => {
-  const { limit = 10 } = req.query;
-  
-  const trendingCategories = await Product.aggregate([
-    { $match: { isTrending: true, status: 'active' } },
+  const trendingProducts = await Product.aggregate([
+    { $match: { status: 'active', ...dateFilter } },
     {
-      $group: {
-        _id: '$category',
-        count: { $sum: 1 },
-        averageScore: { $avg: '$trendingScore' }
+      $addFields: {
+        trendingScore: {
+          $add: [
+            { $multiply: ['$stats.views', 0.3] },
+            { $multiply: ['$stats.wishlists', 0.4] },
+            { $multiply: ['$stats.sales', 1.5] },
+            { $multiply: ['$stats.engagement', 0.8] }
+          ]
+        }
       }
     },
-    { $sort: { count: -1, averageScore: -1 } },
-    { $limit: parseInt(limit) }
+    { $sort: { trendingScore: -1 } },
+    { $limit: parseInt(limit) },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'seller',
+        foreignField: '_id',
+        as: 'seller'
+      }
+    },
+    { $unwind: '$seller' }
   ]);
   
   res.status(200).json({
     status: 'success',
-    results: trendingCategories.length,
+    results: trendingProducts.length,
     data: {
-      categories: trendingCategories
+      products: trendingProducts
     }
+  });
+});
+
+exports.updateProductEngagement = catchAsync(async (req, res, next) => {
+  const { productId, action } = req.body;
+  
+  const updateMap = {
+    view: { 'stats.views': 1, 'stats.engagement': 2 },
+    wishlist: { 'stats.wishlists': 1, 'stats.engagement': 3 },
+    purchase: { 'stats.sales': 1, 'stats.engagement': 5 },
+    share: { 'stats.engagement': 2 },
+    comment: { 'stats.engagement': 1 }
+  };
+  
+  if (!updateMap[action]) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Invalid action'
+    });
+  }
+  
+  const update = {};
+  Object.entries(updateMap[action]).forEach(([key, value]) => {
+    update[key] = value;
+  });
+  
+  await Product.findByIdAndUpdate(productId, { $inc: update });
+  
+  res.status(200).json({
+    status: 'success',
+    message: 'Product engagement updated'
   });
 });
