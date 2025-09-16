@@ -1,11 +1,33 @@
-const AWS = require('aws-sdk');
+const IVS = require('@aws-sdk/client-ivs');
+
+
+const {
+  IvsClient,
+  CreateChannelCommand,
+  GetChannelCommand,
+  ListChannelsCommand,
+  UpdateChannelCommand,
+  DeleteChannelCommand,
+  GetStreamCommand,
+  ListStreamsCommand,
+  GetStreamKeyCommand,
+  CreateStreamKeyCommand,
+  ListStreamKeysCommand,
+  DeleteStreamKeyCommand,
+  GetRecordingConfigurationCommand,
+  CreateRecordingConfigurationCommand,
+  ListRecordingConfigurationsCommand,
+  DeleteRecordingConfigurationCommand,
+} = IVS;
 
 class IVSService {
-  constructor() {
-    this.ivs = new AWS.IVS({
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-      region: process.env.AWS_REGION
+ constructor() {
+    this.ivs = new IvsClient({
+      region: process.env.AWS_REGION,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      },
     });
   }
 
@@ -19,11 +41,19 @@ class IVSService {
     };
 
     try {
-      const data = await this.ivs.createChannel(params).promise();
+      const command = new CreateChannelCommand(params);
+      const data = await this.ivs.send(command);
+      
+      // For CreateChannel, we also need to get the stream key
+      const streamKeyCommand = new CreateStreamKeyCommand({
+        channelArn: data.channel.arn
+      });
+      const streamKeyData = await this.ivs.send(streamKeyCommand);
+      
       return {
         arn: data.channel.arn,
         playbackUrl: data.channel.playbackUrl,
-        streamKey: data.streamKey.value,
+        streamKey: streamKeyData.streamKey.value,
         ingestEndpoint: data.channel.ingestEndpoint
       };
     } catch (error) {
@@ -34,7 +64,8 @@ class IVSService {
 
   async getChannel(arn) {
     try {
-      const data = await this.ivs.getChannel({ arn }).promise();
+      const command = new GetChannelCommand({ arn });
+      const data = await this.ivs.send(command);
       return data.channel;
     } catch (error) {
       console.error('Error getting IVS channel:', error);
@@ -44,7 +75,8 @@ class IVSService {
 
   async listChannels() {
     try {
-      const data = await this.ivs.listChannels({}).promise();
+      const command = new ListChannelsCommand({});
+      const data = await this.ivs.send(command);
       return data.channels;
     } catch (error) {
       console.error('Error listing IVS channels:', error);
@@ -59,7 +91,8 @@ class IVSService {
     };
 
     try {
-      const data = await this.ivs.updateChannel(params).promise();
+      const command = new UpdateChannelCommand(params);
+      const data = await this.ivs.send(command);
       return data.channel;
     } catch (error) {
       console.error('Error updating IVS channel:', error);
@@ -69,7 +102,8 @@ class IVSService {
 
   async deleteChannel(arn) {
     try {
-      await this.ivs.deleteChannel({ arn }).promise();
+      const command = new DeleteChannelCommand({ arn });
+      await this.ivs.send(command);
       return true;
     } catch (error) {
       console.error('Error deleting IVS channel:', error);
@@ -79,10 +113,11 @@ class IVSService {
 
   async getStream(channelArn) {
     try {
-      const data = await this.ivs.getStream({ channelArn }).promise();
+      const command = new GetStreamCommand({ channelArn });
+      const data = await this.ivs.send(command);
       return data.stream;
     } catch (error) {
-      if (error.code === 'ResourceNotFoundException') {
+      if (error.name === 'ResourceNotFoundException') {
         return null; // Stream is not live
       }
       console.error('Error getting stream:', error);
@@ -92,7 +127,8 @@ class IVSService {
 
   async listStreams() {
     try {
-      const data = await this.ivs.listStreams({}).promise();
+      const command = new ListStreamsCommand({});
+      const data = await this.ivs.send(command);
       return data.streams;
     } catch (error) {
       console.error('Error listing streams:', error);
@@ -102,7 +138,8 @@ class IVSService {
 
   async getStreamKey(arn) {
     try {
-      const data = await this.ivs.getStreamKey({ arn }).promise();
+      const command = new GetStreamKeyCommand({ arn });
+      const data = await this.ivs.send(command);
       return data.streamKey;
     } catch (error) {
       console.error('Error getting stream key:', error);
@@ -112,7 +149,8 @@ class IVSService {
 
   async createStreamKey(channelArn) {
     try {
-      const data = await this.ivs.createStreamKey({ channelArn }).promise();
+      const command = new CreateStreamKeyCommand({ channelArn });
+      const data = await this.ivs.send(command);
       return data.streamKey;
     } catch (error) {
       console.error('Error creating stream key:', error);
@@ -122,7 +160,8 @@ class IVSService {
 
   async listStreamKeys(channelArn) {
     try {
-      const data = await this.ivs.listStreamKeys({ channelArn }).promise();
+      const command = new ListStreamKeysCommand({ channelArn });
+      const data = await this.ivs.send(command);
       return data.streamKeys;
     } catch (error) {
       console.error('Error listing stream keys:', error);
@@ -132,7 +171,8 @@ class IVSService {
 
   async deleteStreamKey(arn) {
     try {
-      await this.ivs.deleteStreamKey({ arn }).promise();
+      const command = new DeleteStreamKeyCommand({ arn });
+      await this.ivs.send(command);
       return true;
     } catch (error) {
       console.error('Error deleting stream key:', error);
@@ -142,7 +182,8 @@ class IVSService {
 
   async getRecordingConfiguration(arn) {
     try {
-      const data = await this.ivs.getRecordingConfiguration({ arn }).promise();
+      const command = new GetRecordingConfigurationCommand({ arn });
+      const data = await this.ivs.send(command);
       return data.recordingConfiguration;
     } catch (error) {
       console.error('Error getting recording configuration:', error);
@@ -157,7 +198,8 @@ class IVSService {
     };
 
     try {
-      const data = await this.ivs.createRecordingConfiguration(params).promise();
+      const command = new CreateRecordingConfigurationCommand(params);
+      const data = await this.ivs.send(command);
       return data.recordingConfiguration;
     } catch (error) {
       console.error('Error creating recording configuration:', error);
@@ -167,7 +209,8 @@ class IVSService {
 
   async listRecordingConfigurations() {
     try {
-      const data = await this.ivs.listRecordingConfigurations({}).promise();
+      const command = new ListRecordingConfigurationsCommand({});
+      const data = await this.ivs.send(command);
       return data.recordingConfigurations;
     } catch (error) {
       console.error('Error listing recording configurations:', error);
@@ -177,7 +220,8 @@ class IVSService {
 
   async deleteRecordingConfiguration(arn) {
     try {
-      await this.ivs.deleteRecordingConfiguration({ arn }).promise();
+      const command = new DeleteRecordingConfigurationCommand({ arn });
+      await this.ivs.send(command);
       return true;
     } catch (error) {
       console.error('Error deleting recording configuration:', error);

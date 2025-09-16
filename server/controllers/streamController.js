@@ -16,8 +16,9 @@ exports.createStream = catchAsync(async (req, res, next) => {
   } = req.body;
   const io = req.app.get('io');
   // Create IVS channel
-  const ivsChannel = await IVSService.createChannel(title);
-  
+ 
+    const ivsChannel = await IVSService.createChannel(title);
+
   const stream = await Stream.create({
     title,
     description,
@@ -27,7 +28,7 @@ exports.createStream = catchAsync(async (req, res, next) => {
     seller: req.user.id,
     ivsChannelArn: ivsChannel.arn,
     ivsPlaybackUrl: ivsChannel.playbackUrl,
-    ivsStreamKey: ivsChannel.streamKey,
+    ivsStreamKey: ivsChannel.streamKey, // This should work
     scheduledStart,
     products,
     isChatEnabled,
