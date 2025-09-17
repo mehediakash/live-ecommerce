@@ -22,6 +22,14 @@ const trendingRoutes = require('./routes/trending');
 const paymentRoutes = require('./routes/payments');
 const categoryRoutes = require('./routes/categories');
 const variationRoutes = require('./routes/variations');
+const shippingRoutes = require('./routes/shipping');
+const adminRoutes = require('./routes/admin');
+const analyticsService = require('./services/analyticsService');
+const streamModerationRoutes = require('./routes/streamModeration');
+const socialRoutes = require('./routes/social');
+const trainingRoutes = require('./routes/training');
+const sellerAnalyticsRoutes = require('./routes/sellerAnalytics');
+const bulkOperationsRoutes = require('./routes/bulkOperations');
 
 
 const app = express();
@@ -63,10 +71,90 @@ app.use('/api/v1/trending', trendingRoutes);
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/categories', categoryRoutes);
 app.use('/api/v1/products', variationRoutes);
+app.use('/api/v1/shipping', shippingRoutes);
+app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/stream-moderation', streamModerationRoutes);
+app.use('/api/v1/social', socialRoutes);
+app.use('/api/v1/training', trainingRoutes);
+app.use('/api/v1/seller-analytics', sellerAnalyticsRoutes);
+app.use('/api/v1/bulk', bulkOperationsRoutes);
 
+
+if (process.env.NODE_ENV === 'production') {
+  analyticsService.startScheduledJobs();
+}
+
+process.on('SIGTERM', () => {
+  analyticsService.stopScheduledJobs();
+  process.exit(0);
+});
 // Socket.io connections
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
+
+  // User authentication
+  socket.on('authenticate', (userId) => {
+    socket.join(`user_${userId}`);
+    socket.join('logged_in_users');
+    console.log(`User ${userId} authenticated`);
+  });
+
+  // Stream rooms
+  socket.on('join-stream', (streamId) => {
+    socket.join(streamId);
+    socket.join(`stream_${streamId}_viewers`);
+    console.log(`User joined stream ${streamId}`);
+    
+    // Notify others about new viewer
+    socket.to(streamId).emit('viewer-joined', {
+      userId: socket.userId,
+      timestamp: new Date()
+    });
+  });
+
+  socket.on('leave-stream', (streamId) => {
+    socket.leave(streamId);
+    socket.leave(`stream_${streamId}_viewers`);
+    console.log(`User left stream ${streamId}`);
+  });
+
+  // Moderation events
+  socket.on('moderation-action', (data) => {
+    const { streamId, action, targetUserId, reason } = data;
+    
+    // Broadcast to moderators and stream owner
+    socket.to(`stream_${streamId}_moderators`).emit('moderation-update', {
+      action,
+      targetUserId,
+      reason,
+      moderatorId: socket.userId,
+      timestamp: new Date()
+    });
+  });
+
+  // Interactive features
+  socket.on('poll-vote', (data) => {
+    const { streamId, pollId, optionIndex } = data;
+    
+    // Broadcast vote to all viewers
+    socket.to(streamId).emit('poll-vote-update', {
+      pollId,
+      optionIndex,
+      voterId: socket.userId
+    });
+  });
+
+  // Q&A events
+  socket.on('question-submit', (data) => {
+    const { streamId, question } = data;
+    
+    // Broadcast to stream owner and moderators
+    socket.to(`stream_${streamId}_moderators`).emit('new-question', {
+      question,
+      userId: socket.userId,
+      timestamp: new Date()
+    });
+  });
 
   socket.on('authenticate', (userId) => {
     socket.join(`user_${userId}`);

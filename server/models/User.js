@@ -2,6 +2,53 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
+  streamPreferences: {
+  quality: {
+    type: String,
+    enum: ['auto', '360p', '480p', '720p', '1080p', '4k'],
+    default: 'auto'
+  },
+  latency: {
+    type: String,
+    enum: ['normal', 'low', 'ultra-low'],
+    default: 'normal'
+  },
+  autoplay: {
+    type: Boolean,
+    default: true
+  },
+  notifications: {
+    newStreams: {
+      type: Boolean,
+      default: true
+    },
+    streamStarting: {
+      type: Boolean,
+      default: true
+    },
+    announcements: {
+      type: Boolean,
+      default: true
+    }
+  }
+},
+social: {
+  shareAutoPost: {
+    type: Boolean,
+    default: false
+  },
+  defaultShareMessage: String,
+  connectedAccounts: [{
+    platform: {
+      type: String,
+      enum: ['facebook', 'twitter', 'youtube', 'twitch']
+    },
+    username: String,
+    connectedAt: Date,
+    accessToken: String,
+    refreshToken: String
+  }]
+},
   email: {
     type: String,
     required: true,
@@ -65,7 +112,22 @@ const userSchema = new mongoose.Schema({
     isApproved: {
       type: Boolean,
       default: false
-    }
+    },
+    taxPercentage: {
+  type: Number,
+  default: 0
+},
+platformFees: {
+  type: Number,
+  default: 0
+},
+performanceMetrics: {
+  totalSales: { type: Number, default: 0 },
+  totalRevenue: { type: Number, default: 0 },
+  averageRating: { type: Number, default: 0 },
+  responseTime: { type: Number, default: 0 }, // in hours
+  fulfillmentRate: { type: Number, default: 0 } // percentage
+}
   },
   shippingAddresses: [{
     name: String,
@@ -109,7 +171,25 @@ const userSchema = new mongoose.Schema({
   privacySettings: {
     showOnlineStatus: { type: Boolean, default: true },
     allowMessages: { type: Boolean, default: true }
-  }
+  },training: {
+  completedModules: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'TrainingModule'
+  }],
+  certificates: [{
+    module: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'TrainingModule'
+    },
+    certificateId: String,
+    issueDate: Date,
+    score: Number
+  }],
+  badges: [{
+    type: String,
+    enum: ['beginner', 'intermediate', 'expert', 'top_seller', 'stream_pro']
+  }]
+}
 }, {
   timestamps: true
 });

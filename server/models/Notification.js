@@ -12,7 +12,7 @@ const notificationSchema = new mongoose.Schema({
     enum: [
       'new_bid', 'outbid', 'auction_won', 'auction_sold', 'auction_lost',
       'stream_starting', 'new_follower', 'order_confirmation', 'order_shipped','auction_ended_no_winner',
-      'new_message', 'price_alert', 'low_stock', 'stream_approved', 'stream_rejected'
+      'new_message', 'price_alert', 'low_stock', 'stream_approved', 'stream_rejected','stream_invite','creator_announcement',
     ]
   },
   title: {

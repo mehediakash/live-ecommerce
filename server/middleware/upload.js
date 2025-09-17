@@ -84,6 +84,7 @@ const fileFilter = (req, file, cb) => {
     } else {
       cb(new Error('Only image files are allowed for categories'), false);
     }
+    
   } else {
     cb(new Error('Invalid file type or field name'), false);
   }
@@ -109,6 +110,8 @@ const uploadConfigs = {
     { name: 'images', maxCount: 10 },
     { name: 'videos', maxCount: 5 }
   ]),
+
+  
   
   
 
@@ -142,7 +145,10 @@ const uploadConfigs = {
   
   category: createUpload([
     { name: 'categoryImage', maxCount: 1 }
-  ])
+  ]),
+  training: createUpload([
+  { name: 'thumbnail', maxCount: 1 }
+])
 };
 
 module.exports = {

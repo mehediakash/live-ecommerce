@@ -1,8 +1,7 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const sendEmail = require('../utils/email');
-
+const { sendEmail } = require('../utils/email');
 const signToken = id => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN
@@ -24,71 +23,45 @@ const createSendToken = (user, statusCode, res) => {
   });
 };
 
-exports.signup = async (req, res, next) => {
+exports.signup = async (req, res,next) => {
   try {
     const { email, password, passwordConfirm, firstName, lastName, phone, role } = req.body;
-    
-   
+
     if (password !== passwordConfirm) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Passwords do not match'
-      });
+      return res.status(400).json({ status: 'error', message: 'Passwords do not match' });
     }
-    
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'User already exists with this email'
-      });
+      return res.status(400).json({ status: 'error', message: 'User already exists with this email' });
     }
-    
 
     const newUser = await User.create({
       email,
       password,
       phone,
-      profile: {
-        firstName,
-        lastName
-      },
+      profile: { firstName, lastName },
       role: role || 'user'
     });
-    
 
     const verificationToken = crypto.randomBytes(32).toString('hex');
     newUser.verificationToken = verificationToken;
     await newUser.save({ validateBeforeSave: false });
-    
 
     const verificationUrl = `${req.protocol}://${req.get('host')}/api/v1/auth/verify-email/${verificationToken}`;
-    
     const message = `Please verify your email by clicking on this link: ${verificationUrl}`;
-    
-    try {
-      await sendEmail({
-        email: newUser.email,
-        subject: 'Your email verification token (valid for 24 hours)',
-        message
-      });
-      
-      createSendToken(newUser, 201, res);
-    } catch (err) {
-      newUser.verificationToken = undefined;
-      await newUser.save({ validateBeforeSave: false });
-      
-      return res.status(500).json({
-        status: 'error',
-        message: 'There was an error sending the email. Try again later.'
-      });
-    }
-  } catch (err) {
-    res.status(400).json({
-      status: 'error',
-      message: err.message
+
+    await sendEmail({
+      email: newUser.email,
+      subject: 'Verify your email (valid for 24 hours)',
+      message
     });
+
+    createSendToken(newUser, 201, res);
+
+  } catch (err) {
+    console.error("Signup error:", err);
+    res.status(500).json({ status: 'error', message: 'There was an error sending the email. Try again later.' });
   }
 };
 

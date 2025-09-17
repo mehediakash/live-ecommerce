@@ -9,7 +9,33 @@ const orderSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
-  },
+  },shippingProfile: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'ShippingProfile'
+},
+shippingOption: {
+  type: Map,
+  of: mongoose.Schema.Types.Mixed
+},
+fulfillment: {
+  trackingNumber: String,
+  carrier: String,
+  labelUrl: String,
+  shippedAt: Date,
+  estimatedDelivery: Date,
+  actualDelivery: Date,
+  insurance: {
+    isInsured: Boolean,
+    insuranceCost: Number,
+    insuredValue: Number
+  }
+},
+specialInstructions: String,
+rushOrder: {
+  isRush: Boolean,
+  rushFee: Number,
+  promisedDate: Date
+},
   seller: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -83,9 +109,24 @@ const orderSchema = new mongoose.Schema({
     deliveredAt: Date
   },
   tax: {
-    rate: Number,
-    amount: Number
-  },
+  rate: Number,
+  amount: Number,
+  country: String,
+  region: String,
+  vatNumber: String
+},
+international: {
+  isInternational: Boolean,
+  customsValue: Number,
+  harmonizedSystemCode: String,
+  customsDescription: String
+},
+export: {
+  isExport: Boolean,
+  exportLicense: String,
+  certificateNumber: String
+}
+,
   discount: {
     code: String,
     amount: Number

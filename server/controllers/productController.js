@@ -415,6 +415,128 @@ exports.deleteProduct = catchAsync(async (req, res, next) => {
   });
 });
 
+exports.addVariation = catchAsync(async (req, res, next) => {
+  const product = await Product.findById(req.params.productId);
+
+  if (!product) {
+    return res.status(404).json({
+      status: 'error',
+      message: 'Product not found'
+    });
+  }
+
+  if (product.seller.toString() !== req.user.id && req.user.role !== 'admin') {
+    return res.status(403).json({
+      status: 'error',
+      message: 'You are not authorized to add a variation to this product'
+    });
+  }
+
+  const newVariation = { ...req.body };
+
+  if (req.files && req.files.variation_0_images) {
+    newVariation.images = req.files.variation_0_images.map(file => ({
+      url: file.path,
+      isPrimary: false
+    }));
+    if (newVariation.images.length > 0) {
+      newVariation.images[0].isPrimary = true;
+    }
+  }
+
+  product.variations.push(newVariation);
+  await product.save();
+
+  res.status(201).json({
+    status: 'success',
+    data: {
+      product
+    }
+  });
+});
+
+exports.updateVariation = catchAsync(async (req, res, next) => {
+  const product = await Product.findById(req.params.productId);
+
+  if (!product) {
+    return res.status(404).json({
+      status: 'error',
+      message: 'Product not found'
+    });
+  }
+
+  if (product.seller.toString() !== req.user.id && req.user.role !== 'admin') {
+    return res.status(403).json({
+      status: 'error',
+      message: 'You are not authorized to update this product'
+    });
+  }
+
+  const variation = product.variations.id(req.params.variationId);
+
+  if (!variation) {
+    return res.status(404).json({
+      status: 'error',
+      message: 'Variation not found'
+    });
+  }
+
+  Object.assign(variation, req.body);
+
+  if (req.files && req.files.images) {
+    const newImages = req.files.images.map(file => ({
+      url: file.path,
+      isPrimary: false
+    }));
+    variation.images.push(...newImages);
+  }
+
+  await product.save();
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      product
+    }
+  });
+});
+
+exports.deleteVariation = catchAsync(async (req, res, next) => {
+  const product = await Product.findById(req.params.productId);
+
+  if (!product) {
+    return res.status(404).json({
+      status: 'error',
+      message: 'Product not found'
+    });
+  }
+
+  if (product.seller.toString() !== req.user.id && req.user.role !== 'admin') {
+    return res.status(403).json({
+      status: 'error',
+      message: 'You are not authorized to delete from this product'
+    });
+  }
+
+  const variation = product.variations.id(req.params.variationId);
+
+  if (!variation) {
+    return res.status(404).json({
+      status: 'error',
+      message: 'Variation not found'
+    });
+  }
+
+  variation.remove();
+  await product.save();
+
+  res.status(204).json({
+    status: 'success',
+    data: null
+  });
+});
+
+
 exports.startAuction = catchAsync(async (req, res, next) => {
   const { duration } = req.body; // in minutes
   const product = await Product.findById(req.params.id);
