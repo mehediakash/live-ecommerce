@@ -33,6 +33,7 @@ const userSchema = new mongoose.Schema({
   }
 },
 
+
 social: {
   shareAutoPost: {
     type: Boolean,
