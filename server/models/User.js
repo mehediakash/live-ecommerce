@@ -32,6 +32,7 @@ const userSchema = new mongoose.Schema({
     }
   }
 },
+
 social: {
   shareAutoPost: {
     type: Boolean,
@@ -51,8 +52,11 @@ social: {
 },
   email: {
     type: String,
-    required: true,
+    required: function() {
+      return !this.socialAuth?.google && !this.socialAuth?.facebook;
+    },
     unique: true,
+    sparse: true,
     lowercase: true
   },
   phone: {
@@ -61,9 +65,36 @@ social: {
   },
   password: {
     type: String,
-    required: true,
+    required: function() {
+      return !this.socialAuth?.google && !this.socialAuth?.facebook;
+    },
     minlength: 6,
     select: false
+  },
+   socialAuth: {
+    google: {
+      id: {
+        type: String,
+        sparse: true
+      },
+      email: String,
+      name: String,
+      picture: String
+    },
+    facebook: {
+      id: {
+        type: String,
+        sparse: true
+      },
+      email: String,
+      name: String,
+      picture: String
+    }
+  },
+   authProvider: {
+    type: String,
+    enum: ['local', 'google', 'facebook'],
+    default: 'local'
   },
   profile: {
     firstName: String,
@@ -194,6 +225,8 @@ performanceMetrics: {
   timestamps: true
 });
 
+
+
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   this.password = await bcrypt.hash(this.password, 12);
@@ -203,5 +236,4 @@ userSchema.pre('save', async function(next) {
 userSchema.methods.correctPassword = async function(candidatePassword, userPassword) {
   return await bcrypt.compare(candidatePassword, userPassword);
 };
-
 module.exports = mongoose.model('User', userSchema);
