@@ -3,6 +3,7 @@ const userController = require('../controllers/userController');
 const authController = require('../controllers/authController');
 
 const { uploadConfigs } = require('../middleware/upload');
+const fixCloudinaryPath = require('../middleware/fixCloudinaryPath');
 
 
 const router = express.Router();

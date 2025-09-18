@@ -38,10 +38,9 @@ exports.updateProfile = catchAsync(async (req, res, next) => {
   if (privacySettings) updateData.privacySettings = JSON.parse(privacySettings);
   if (notifications) updateData.notifications = JSON.parse(notifications);
   
-  if (req.file) {
-    updateData['profile.avatar'] = req.file.path;
-  }
-  
+ if (req.files && req.files.avatar && req.files.avatar[0]) {
+  updateData['profile.avatar'] = req.files.avatar[0].path;
+}
   const user = await User.findByIdAndUpdate(
     req.user.id,
     updateData,

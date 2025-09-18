@@ -1,8 +1,11 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const User = require('../models/User');
+const ShippingProfile = require('../models/ShippingProfile');
 const NotificationService = require('../services/notificationService');
 const PaymentService = require('../services/paymentService');
+const CarrierService = require('../services/carrierService');
+const TaxService = require('../services/taxService');
 const catchAsync = require('../utils/catchAsync');
 
 exports.createOrder = catchAsync(async (req, res, next) => {
@@ -12,13 +15,20 @@ exports.createOrder = catchAsync(async (req, res, next) => {
     paymentMethodId,
     useSavedAddress,
     saveAddress,
-    couponCode
+    couponCode,
+    shippingProfileId,
+    shippingOptionId,
+    rushOrder,
+    specialInstructions,
+    insurance
   } = req.body;
+  
   const io = req.app.get('io'); // Get Socket.io instance
 
   // Validate items
   let totalAmount = 0;
   const orderItems = [];
+  let sellerId = null;
   
   for (const item of items) {
     const product = await Product.findById(item.productId);
@@ -41,6 +51,16 @@ exports.createOrder = catchAsync(async (req, res, next) => {
       return res.status(400).json({
         status: 'error',
         message: `Insufficient stock for: ${product.name}`
+      });
+    }
+    
+    // Set seller ID (assuming single seller per order)
+    if (!sellerId) {
+      sellerId = product.seller;
+    } else if (sellerId.toString() !== product.seller.toString()) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Cannot order products from multiple sellers in one order'
       });
     }
     
@@ -73,15 +93,68 @@ exports.createOrder = catchAsync(async (req, res, next) => {
     await product.save();
   }
   
+  // Handle shipping
+  let shippingCost = 0;
+  let selectedShippingOption = null;
+  let shippingProfile = null;
+
+  if (shippingProfileId && shippingOptionId) {
+    shippingProfile = await ShippingProfile.findOne({
+      _id: shippingProfileId,
+      seller: sellerId
+    });
+
+    if (shippingProfile) {
+      selectedShippingOption = shippingProfile.shippingOptions.id(shippingOptionId);
+      
+      if (selectedShippingOption) {
+        shippingCost = selectedShippingOption.cost;
+        
+        // Apply free shipping threshold
+        if (selectedShippingOption.freeShippingThreshold && 
+            totalAmount >= selectedShippingOption.freeShippingThreshold) {
+          shippingCost = 0;
+        }
+      }
+    }
+  }
+
+  // Apply rush order fee if requested
+  let rushFee = 0;
+  if (rushOrder && rushOrder.isRush) {
+    rushFee = rushOrder.rushFee || totalAmount * 0.2; // 20% rush fee by default
+  }
+
+  // Apply insurance cost if requested
+  let insuranceCost = 0;
+  let insuredValue = 0;
+  if (insurance && insurance.isInsured) {
+    insuredValue = totalAmount;
+    insuranceCost = insuredValue * 0.01; // 1% insurance cost
+  }
+
+  // Calculate subtotal (before discounts, shipping, fees)
+  const subtotal = totalAmount;
+
   // Apply coupon discount if provided
   let discountAmount = 0;
   if (couponCode) {
-    // In a real application, you would validate the coupon code
-    // and calculate discount based on coupon rules
     discountAmount = totalAmount * 0.1; // 10% discount for example
     totalAmount -= discountAmount;
   }
-  
+
+  // Add shipping cost, rush fee, and insurance
+  totalAmount += shippingCost + rushFee + insuranceCost;
+
+  // Calculate tax
+  const taxInfo = await TaxService.calculateTax(
+    { totalAmount: subtotal }, // Pass order without shipping/fees for tax calculation
+    shippingAddress
+  );
+
+  // Add tax to total
+  totalAmount += taxInfo.amount;
+
   // Handle shipping address
   let finalShippingAddress;
   
@@ -111,12 +184,13 @@ exports.createOrder = catchAsync(async (req, res, next) => {
   }
   
   // Create order
-  const order = await Order.create({
+  const orderData = {
     orderId: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     buyer: req.user.id,
-    seller: orderItems[0].product.seller, // Assuming single seller for simplicity
+    seller: sellerId,
     items: orderItems,
-    totalAmount,
+    totalAmount: parseFloat(totalAmount.toFixed(2)),
+    subtotal: parseFloat(subtotal.toFixed(2)),
     shippingAddress: finalShippingAddress,
     payment: {
       method: 'card',
@@ -124,9 +198,41 @@ exports.createOrder = catchAsync(async (req, res, next) => {
     },
     discount: {
       code: couponCode,
-      amount: discountAmount
+      amount: parseFloat(discountAmount.toFixed(2))
+    },
+    tax: {
+      rate: taxInfo.rate,
+      amount: parseFloat(taxInfo.amount.toFixed(2)),
+      country: taxInfo.country,
+      region: taxInfo.region
+    },
+    shippingProfile: shippingProfileId,
+    shippingOption: selectedShippingOption ? selectedShippingOption.toObject() : undefined,
+    specialInstructions,
+    rushOrder: rushOrder ? {
+      isRush: rushOrder.isRush,
+      rushFee: parseFloat(rushFee.toFixed(2)),
+      promisedDate: rushOrder.promisedDate
+    } : undefined,
+    fulfillment: {
+      insurance: {
+        isInsured: insurance ? insurance.isInsured : false,
+        insuranceCost: parseFloat(insuranceCost.toFixed(2)),
+        insuredValue: parseFloat(insuredValue.toFixed(2))
+      }
     }
-  });
+  };
+
+  // Add international fields if applicable
+  if (finalShippingAddress.country !== 'GB') {
+    orderData.international = {
+      isInternational: true,
+      customsValue: subtotal,
+      customsDescription: orderItems.map(item => item.product.name).join(', ')
+    };
+  }
+
+  const order = await Order.create(orderData);
   
   // Process payment
   try {
@@ -146,7 +252,6 @@ exports.createOrder = catchAsync(async (req, res, next) => {
     
     // Send confirmation notification
     await NotificationService.sendOrderConfirmationNotification(io, req.user.id, order);
-    // await NotificationService.sendOrderConfirmationNotification(req.user.id, order);
     
     res.status(201).json({
       status: 'success',
@@ -159,8 +264,10 @@ exports.createOrder = catchAsync(async (req, res, next) => {
     // Payment failed, release reserved inventory
     for (const item of orderItems) {
       const product = await Product.findById(item.product);
-      product.inventory.reservedQuantity -= item.quantity;
-      await product.save();
+      if (product) {
+        product.inventory.reservedQuantity -= item.quantity;
+        await product.save();
+      }
     }
     
     order.payment.status = 'failed';
@@ -177,7 +284,8 @@ exports.getOrder = catchAsync(async (req, res, next) => {
   const order = await Order.findById(req.params.id)
     .populate('buyer', 'profile firstName lastName')
     .populate('seller', 'profile firstName lastName')
-    .populate('items.product', 'name images');
+    .populate('items.product', 'name images')
+    .populate('shippingProfile');
   
   if (!order) {
     return res.status(404).json({
@@ -244,6 +352,8 @@ exports.getUserOrders = catchAsync(async (req, res, next) => {
 
 exports.updateOrderStatus = catchAsync(async (req, res, next) => {
   const { status, trackingNumber, carrier } = req.body;
+  const io = req.app.get('io');
+  
   const order = await Order.findById(req.params.id);
   
   if (!order) {
@@ -265,29 +375,49 @@ exports.updateOrderStatus = catchAsync(async (req, res, next) => {
   order.status = status;
   
   if (status === 'shipped' && trackingNumber && carrier) {
-    order.shipping.trackingNumber = trackingNumber;
-    order.shipping.carrier = carrier;
-    order.shipping.shippedAt = new Date();
+    order.fulfillment.trackingNumber = trackingNumber;
+    order.fulfillment.carrier = carrier;
+    order.fulfillment.shippedAt = new Date();
     
-    // Calculate estimated delivery
-    const shippingTime = carrier === 'overnight' ? 1 : carrier === 'expedited' ? 2 : 5;
-    order.shipping.estimatedDelivery = new Date(Date.now() + shippingTime * 24 * 60 * 60 * 1000);
+    // Calculate estimated delivery based on carrier
+    const shippingTimes = {
+      'royal_mail': { standard: 5, expedited: 2, overnight: 1 },
+      'dpd': { standard: 3, expedited: 2, overnight: 1 },
+      'ups': { standard: 4, expedited: 2, overnight: 1 },
+      'fedex': { standard: 3, expedited: 2, overnight: 1 }
+    };
+    
+    const carrierTime = shippingTimes[carrier] || shippingTimes.royal_mail;
+    const shippingType = order.shippingOption?.type || 'standard';
+    const days = carrierTime[shippingType] || 5;
+    
+    order.fulfillment.estimatedDelivery = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    
+    // Generate shipping label through carrier service
+    try {
+      const labelData = await CarrierService.createShipment(order, order.shippingOption);
+      order.fulfillment.labelUrl = labelData.labelUrl;
+    } catch (error) {
+      console.error('Failed to generate shipping label:', error);
+      // Continue without label URL
+    }
     
     // Send shipment notification
-    // await NotificationService.sendOrderShippedNotification(order.buyer, order, trackingNumber);
-     await NotificationService.sendOrderShippedNotification(io, order.buyer, order, trackingNumber);
+    await NotificationService.sendOrderShippedNotification(io, order.buyer, order, trackingNumber);
   }
   
   if (status === 'delivered') {
-    order.shipping.deliveredAt = new Date();
+    order.fulfillment.actualDelivery = new Date();
     
     // Update product sold quantities and release reserved inventory
     for (const item of order.items) {
       const product = await Product.findById(item.product);
-      product.inventory.soldQuantity += item.quantity;
-      product.inventory.reservedQuantity -= item.quantity;
-      product.stats.sales += 1;
-      await product.save();
+      if (product) {
+        product.inventory.soldQuantity += item.quantity;
+        product.inventory.reservedQuantity -= item.quantity;
+        product.stats.sales += 1;
+        await product.save();
+      }
     }
   }
   
@@ -328,8 +458,11 @@ exports.requestReturn = catchAsync(async (req, res, next) => {
     });
   }
   
-  const deliveryDate = new Date(order.shipping.deliveredAt);
-  const returnPeriod = 30; // 30-day return policy
+  // Check return policy
+  const shippingProfile = await ShippingProfile.findById(order.shippingProfile);
+  const returnPeriod = shippingProfile?.returnPolicy?.returnPeriod || 30;
+  
+  const deliveryDate = new Date(order.fulfillment.actualDelivery || order.fulfillment.shippedAt);
   const returnDeadline = new Date(deliveryDate.getTime() + returnPeriod * 24 * 60 * 60 * 1000);
   
   if (new Date() > returnDeadline) {
@@ -382,10 +515,10 @@ exports.processRefund = catchAsync(async (req, res, next) => {
   try {
     const refundResult = await PaymentService.processRefund({
       paymentIntentId: order.payment.transactionId,
-      amount: refundAmount || order.totalAmount
+      amount: refundAmount || (order.totalAmount - (order.tax?.amount || 0)) // Refund without tax
     });
     
-    order.refundAmount = refundAmount || order.totalAmount;
+    order.refundAmount = refundAmount || (order.totalAmount - (order.tax?.amount || 0));
     order.payment.status = 'refunded';
     await order.save();
     
@@ -402,4 +535,81 @@ exports.processRefund = catchAsync(async (req, res, next) => {
       message: 'Refund failed: ' + error.message
     });
   }
+});
+
+// New method to get shipping options for order
+exports.getShippingOptions = catchAsync(async (req, res, next) => {
+  const { items, shippingAddress } = req.body;
+  
+  if (!items || !items.length || !shippingAddress) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Items and shipping address are required'
+    });
+  }
+  
+  // Get seller ID from first product
+  const firstProduct = await Product.findById(items[0].productId);
+  if (!firstProduct) {
+    return res.status(404).json({
+      status: 'error',
+      message: 'Product not found'
+    });
+  }
+  
+  const sellerId = firstProduct.seller;
+  
+  // Calculate order total for free shipping thresholds
+  let orderTotal = 0;
+  for (const item of items) {
+    const product = await Product.findById(item.productId);
+    if (product) {
+      orderTotal += product.price * item.quantity;
+    }
+  }
+  
+  // Get available shipping profiles for this seller
+  const shippingProfiles = await ShippingProfile.find({ seller: sellerId });
+  
+  const availableOptions = [];
+  
+  for (const profile of shippingProfiles) {
+    for (const option of profile.shippingOptions) {
+      // Check if option is available for destination
+      if (option.countries && option.countries.length > 0 && 
+          !option.countries.includes(shippingAddress.country)) {
+        continue;
+      }
+      
+      // Check if international shipping is required
+      if (shippingAddress.country !== 'GB' && option.type !== 'international') {
+        continue;
+      }
+      
+      let cost = option.cost;
+      
+      // Apply free shipping threshold
+      if (option.freeShippingThreshold && orderTotal >= option.freeShippingThreshold) {
+        cost = 0;
+      }
+      
+      availableOptions.push({
+        profileId: profile._id,
+        optionId: option._id,
+        name: option.name,
+        type: option.type,
+        carrier: option.carrier,
+        cost: parseFloat(cost.toFixed(2)),
+        estimatedDelivery: option.estimatedDelivery,
+        freeShippingThreshold: option.freeShippingThreshold
+      });
+    }
+  }
+  
+  res.status(200).json({
+    status: 'success',
+    data: {
+      shippingOptions: availableOptions
+    }
+  });
 });

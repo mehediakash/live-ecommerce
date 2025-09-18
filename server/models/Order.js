@@ -17,6 +17,8 @@ shippingOption: {
   type: Map,
   of: mongoose.Schema.Types.Mixed
 },
+bid: { type: mongoose.Schema.Types.ObjectId, ref: 'Bid' },
+stream: { type: mongoose.Schema.Types.ObjectId, ref: 'Stream' },
 fulfillment: {
   trackingNumber: String,
   carrier: String,

@@ -6,14 +6,14 @@ const router = express.Router();
 
 router.use(authController.protect);
 
-router
-  .route('/')
+router.route('/')
   .get(orderController.getUserOrders)
   .post(orderController.createOrder);
 
-  
-router
-  .route('/:id')
+router.route('/shipping-options')
+  .post(orderController.getShippingOptions);
+
+router.route('/:id')
   .get(orderController.getOrder)
   .patch(orderController.updateOrderStatus);
 

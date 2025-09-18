@@ -161,20 +161,7 @@ trendingScore: {  // Add this field
     enum: ['draft', 'active', 'paused', 'sold', 'archived'],
     default: 'draft'
   },
-  stats: {
-    views: {
-      type: Number,
-      default: 0
-    },
-    wishlists: {
-      type: Number,
-      default: 0
-    },
-    sales: {
-      type: Number,
-      default: 0
-    }
-  },
+
   reviews: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Review'
