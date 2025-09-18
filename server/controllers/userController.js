@@ -34,9 +34,23 @@ exports.updateProfile = catchAsync(async (req, res, next) => {
   if (lastName) updateData['profile.lastName'] = lastName;
   if (bio) updateData['profile.bio'] = bio;
   if (phone) updateData.phone = phone;
-  if (preferences) updateData['profile.preferences'] = JSON.parse(preferences);
-  if (privacySettings) updateData.privacySettings = JSON.parse(privacySettings);
-  if (notifications) updateData.notifications = JSON.parse(notifications);
+ if (preferences) {
+    updateData['profile.preferences'] = typeof preferences === 'string' 
+      ? JSON.parse(preferences) 
+      : preferences;
+  }
+
+  if (privacySettings) {
+    updateData.privacySettings = typeof privacySettings === 'string' 
+      ? JSON.parse(privacySettings) 
+      : privacySettings;
+  }
+
+  if (notifications) {
+    updateData.notifications = typeof notifications === 'string' 
+      ? JSON.parse(notifications) 
+      : notifications;
+  }
   
  if (req.files && req.files.avatar && req.files.avatar[0]) {
   updateData['profile.avatar'] = req.files.avatar[0].path;

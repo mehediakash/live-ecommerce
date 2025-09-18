@@ -3,8 +3,31 @@ const Product = require('../models/Product');
 const catchAsync = require('../utils/catchAsync');
 
 exports.createCategory = catchAsync(async (req, res, next) => {
-  const { name, description, parentCategory, sortOrder, metadata } = req.body;
+  const { name, description, parentCategory, sortOrder } = req.body;
   
+
+
+    let metadata = {};
+  if (req.body.metadata) {
+    try {
+      metadata = typeof req.body.metadata === 'string' 
+        ? JSON.parse(req.body.metadata) 
+        : req.body.metadata;
+    } catch (err) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid metadata format, must be JSON object'
+      });
+    }
+  }
+
+  if (!req.files || !req.files['categoryImage'] || req.files['categoryImage'].length === 0) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Category image is required'
+    });
+  }
+
   const categoryData = {
     name,
     description,
@@ -12,8 +35,9 @@ exports.createCategory = catchAsync(async (req, res, next) => {
     sortOrder,
     metadata,
     createdBy: req.user.id,
-    image: req.file ? req.file.path : null
+    image: req.files['categoryImage'][0].path
   };
+
   
   // If user is admin, auto-approve
   if (req.user.role === 'admin') {
@@ -97,34 +121,51 @@ exports.getCategory = catchAsync(async (req, res, next) => {
 
 exports.updateCategory = catchAsync(async (req, res, next) => {
   const { id } = req.params;
-  const { name, description, parentCategory, sortOrder, metadata, status, isActive } = req.body;
-  
+  const { name, description, parentCategory, sortOrder, status, isActive } = req.body;
+
+  // Parse metadata safely
+  let metadata;
+  if (req.body.metadata) {
+    try {
+      metadata = typeof req.body.metadata === 'string'
+        ? JSON.parse(req.body.metadata)
+        : req.body.metadata;
+    } catch (err) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid metadata format, must be JSON object'
+      });
+    }
+  }
+
   const category = await Category.findById(id);
-  
   if (!category) {
     return res.status(404).json({
       status: 'error',
       message: 'Category not found'
     });
   }
-  
-  // Only admin can change status
-  const updateData = { name, description, parentCategory, sortOrder, metadata };
+
+  const updateData = { name, description, parentCategory, sortOrder };
+  if (metadata) updateData.metadata = metadata;
+
+  // Only admin can change status/isActive
   if (req.user.role === 'admin') {
-    updateData.status = status;
-    updateData.isActive = isActive;
+    if (status) updateData.status = status;
+    if (typeof isActive !== 'undefined') updateData.isActive = isActive;
   }
-  
-  if (req.file) {
-    updateData.image = req.file.path;
+
+  // Update image if a new file is uploaded
+  if (req.files && req.files['categoryImage'] && req.files['categoryImage'][0]) {
+    updateData.image = req.files['categoryImage'][0].path;
   }
-  
+
   const updatedCategory = await Category.findByIdAndUpdate(
     id,
     updateData,
     { new: true, runValidators: true }
   );
-  
+
   res.status(200).json({
     status: 'success',
     data: {
@@ -132,6 +173,7 @@ exports.updateCategory = catchAsync(async (req, res, next) => {
     }
   });
 });
+
 
 exports.deleteCategory = catchAsync(async (req, res, next) => {
   const { id } = req.params;
