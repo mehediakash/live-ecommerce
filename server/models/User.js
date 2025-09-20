@@ -64,6 +64,11 @@ social: {
     type: String,
     sparse: true
   },
+  stripeCustomerId: {
+  type: String,
+  unique: true,
+  sparse: true
+},
   password: {
     type: String,
     required: function() {

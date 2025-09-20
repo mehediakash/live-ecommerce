@@ -233,13 +233,29 @@ exports.createOrder = catchAsync(async (req, res, next) => {
   }
 
   const order = await Order.create(orderData);
+
+  // **Stripe Customer creation logic merge করা হলো এখানে**
+  let stripeCustomerId = req.user.stripeCustomerId;
+
+  if (!stripeCustomerId) {
+    // 1. Stripe Customer create করো
+    const customer = await PaymentService.createStripeCustomer({
+        email: req.user.email,
+        name: req.user.profile.firstName + ' ' + req.user.profile.lastName
+    });
+
+    // 2. User model update করো
+    await User.findByIdAndUpdate(req.user.id, { stripeCustomerId: customer.id });
+
+    stripeCustomerId = customer.id; // update local variable
+  }
   
   // Process payment
   try {
     const paymentResult = await PaymentService.processPayment({
       amount: totalAmount,
       paymentMethodId,
-      customerId: req.user.stripeCustomerId,
+      customerId: stripeCustomerId,
       orderId: order.orderId
     });
     
@@ -279,6 +295,7 @@ exports.createOrder = catchAsync(async (req, res, next) => {
     });
   }
 });
+
 
 exports.getOrder = catchAsync(async (req, res, next) => {
   const order = await Order.findById(req.params.id)

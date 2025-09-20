@@ -1,6 +1,20 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 class PaymentService {
+  // ✅ Stripe Customer create করার method
+  async createStripeCustomer({ email, name }) {
+    try {
+      const customer = await stripe.customers.create({
+        email,
+        name
+      });
+      return customer;
+    } catch (error) {
+      console.error('Error creating Stripe customer:', error);
+      throw error;
+    }
+  }
+
   async createCustomer(email, name, metadata = {}) {
     try {
       const customer = await stripe.customers.create({
@@ -18,13 +32,14 @@ class PaymentService {
   async createPaymentIntent(amount, currency, customerId, metadata = {}) {
     try {
       const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(amount * 100), // Convert to cents
+        amount: Math.round(amount * 100),
         currency: currency || 'usd',
         customer: customerId,
         metadata,
         automatic_payment_methods: {
           enabled: true,
-        },
+          allow_redirects: 'never'
+        }
       });
       return paymentIntent;
     } catch (error) {
@@ -82,6 +97,34 @@ class PaymentService {
       throw error;
     }
   }
+
+  async processPayment({ amount, paymentMethodId, customerId, orderId, currency = 'usd' }) {
+    try {
+      const paymentData = {
+        amount: Math.round(amount * 100),
+        currency,
+        payment_method: paymentMethodId,
+        confirm: true,
+        metadata: { orderId },
+        automatic_payment_methods: {
+          enabled: true,
+          allow_redirects: 'never'
+        }
+      };
+
+      // ✅ Only include customer if it is not empty/null
+      if (customerId) {
+        paymentData.customer = customerId;
+      }
+
+      const paymentIntent = await stripe.paymentIntents.create(paymentData);
+      return paymentIntent;
+    } catch (error) {
+      console.error('Error processing payment:', error);
+      throw error;
+    }
+  }
 }
 
+// 🔹 Export single instance
 module.exports = new PaymentService();
