@@ -13,20 +13,11 @@ router.get('/:id', productController.getProduct);
 router.use(authController.protect);
 
 router.post('/', uploadConfigs.product, productController.createProduct);
-router.post('/with-variations', (req, res, next) => {
-  const variationCount = parseInt(req.body.variationCount) || 0;
-  uploadConfigs.productWithVariations(variationCount)(req, res, (err) => {
-    if (err) {
-      return res.status(400).json({
-        status: 'error',
-        message: err.message
-      });
-    }
-    next();
-  });
-}, productController.createProduct);
+
 
 router.patch('/:id', uploadConfigs.product, productController.updateProduct);
+
+
 router.delete('/:id', productController.deleteProduct);
 
 router.post('/:id/auction/start', productController.startAuction);

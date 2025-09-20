@@ -122,10 +122,24 @@ const safeParseJSON = (data) => {
 
 exports.createProduct = catchAsync(async (req, res, next) => {
   const {
-    name, description, category, tags, price, originalPrice, costPrice, condition,
-    inventory, variations, shipping, auction, buyItNow, bundle, status
+    name,
+    description,
+    category,
+    tags,
+    price,
+    originalPrice,
+    costPrice,
+    condition,
+    inventory,
+    variations,
+    shipping,
+    auction,
+    buyItNow,
+    bundle,
+    status
   } = req.body;
 
+  // Safely parse JSON fields
   const parsedInventory = safeParseJSON(inventory);
   const parsedVariations = safeParseJSON(variations);
   const parsedShipping = safeParseJSON(shipping);
@@ -133,11 +147,17 @@ exports.createProduct = catchAsync(async (req, res, next) => {
   const parsedBuyItNow = safeParseJSON(buyItNow);
   const parsedBundle = safeParseJSON(bundle);
 
+  // Base product data
   const productData = {
-    name, description, category,
+    name,
+    description,
+    category,
     tags: tags ? tags.split(',') : [],
     seller: req.user.id,
-    price, originalPrice, costPrice, condition,
+    price,
+    originalPrice,
+    costPrice,
+    condition,
     inventory: parsedInventory,
     variations: parsedVariations,
     shipping: parsedShipping,
@@ -147,33 +167,58 @@ exports.createProduct = catchAsync(async (req, res, next) => {
     status
   };
 
-  // Handle images
+  // 🔹 Handle product images
   if (req.files?.images) {
-    productData.images = req.files.images.map(file => ({ url: file.path, isPrimary: false }));
+    productData.images = req.files.images.map(file => ({
+      url: file.path,
+      isPrimary: false
+    }));
     if (productData.images.length > 0) productData.images[0].isPrimary = true;
   }
 
-  // Handle videos
+  // 🔹 Handle product videos
   if (req.files?.videos) {
-    productData.videos = req.files.videos.map(file => ({ url: file.path, thumbnail: file.path }));
+    productData.videos = req.files.videos.map(file => ({
+      url: file.path,
+      thumbnail: file.path
+    }));
   }
 
-  // Handle variation images
-  if (parsedVariations.length > 0 && req.files) {
+  // 🔹 Handle variation images
+  if (Array.isArray(parsedVariations) && parsedVariations.length > 0) {
     productData.variations = parsedVariations.map((variation, index) => {
-      const field = `variation_${index}_images`;
-      if (req.files[field]) {
-        variation.images = req.files[field].map(file => ({ url: file.path, isPrimary: false }));
-        if (variation.images.length > 0) variation.images[0].isPrimary = true;
+      const imagesField = `variation_${index}_images`;
+      const videosField = `variation_${index}_videos`; // optional
+
+      // attach variation images if uploaded
+      if (req.files && req.files[imagesField]) {
+        variation.images = req.files[imagesField].map((file, idx) => ({
+          url: file.path,
+          isPrimary: idx === 0
+        }));
       }
+
+      // (optional) attach variation videos if uploaded
+      if (req.files && req.files[videosField]) {
+        variation.videos = req.files[videosField].map(file => ({
+          url: file.path,
+          thumbnail: file.path
+        }));
+      }
+
       return variation;
     });
   }
 
+  // 🔹 Save product
   const product = await Product.create(productData);
 
-  res.status(201).json({ status: 'success', data: { product } });
+  res.status(201).json({
+    status: 'success',
+    data: { product }
+  });
 });
+
 
 
 
@@ -252,22 +297,20 @@ exports.getAllProducts = catchAsync(async (req, res, next) => {
 
 exports.updateProduct = catchAsync(async (req, res, next) => {
   const product = await Product.findById(req.params.id);
-  
+
   if (!product) {
-    return res.status(404).json({
-      status: 'error',
-      message: 'Product not found'
-    });
+    return res.status(404).json({ status: 'error', message: 'Product not found' });
   }
-  
-  // Check if user is the product owner
+
+  // Check owner
   if (product.seller.toString() !== req.user.id && req.user.role !== 'admin') {
     return res.status(403).json({
       status: 'error',
       message: 'You are not authorized to update this product'
     });
   }
-  
+
+  // ---------- BASIC FIELDS ----------
   const {
     name,
     description,
@@ -285,9 +328,9 @@ exports.updateProduct = catchAsync(async (req, res, next) => {
     bundle,
     status
   } = req.body;
-  
+
   const updateData = {};
-  
+
   if (name) updateData.name = name;
   if (description) updateData.description = description;
   if (category) updateData.category = category;
@@ -297,65 +340,104 @@ exports.updateProduct = catchAsync(async (req, res, next) => {
   if (costPrice) updateData.costPrice = costPrice;
   if (condition) updateData.condition = condition;
   if (status) updateData.status = status;
-  
+
   if (inventory) updateData.inventory = JSON.parse(inventory);
-  if (variations) updateData.variations = JSON.parse(variations);
   if (shipping) updateData.shipping = JSON.parse(shipping);
   if (auction) updateData.auction = JSON.parse(auction);
   if (buyItNow) updateData.buyItNow = JSON.parse(buyItNow);
   if (bundle) updateData.bundle = JSON.parse(bundle);
-  
-  // Handle new images
-  if (req.files && req.files.images) {
+
+  // ---------- PRODUCT LEVEL IMAGES ----------
+  if (req.files?.images) {
     const newImages = req.files.images.map(file => ({
       url: file.path,
       isPrimary: false
     }));
-    
-    updateData.$push = { images: { $each: newImages } };
+    updateData.$push = { ...updateData.$push, images: { $each: newImages } };
   }
-  
-  // Handle new videos
-  if (req.files && req.files.videos) {
+
+  // ---------- PRODUCT LEVEL VIDEOS ----------
+  if (req.files?.videos) {
     const newVideos = req.files.videos.map(file => ({
       url: file.path,
       thumbnail: file.path
     }));
-    
-    updateData.$push = { videos: { $each: newVideos } };
+    updateData.$push = { ...updateData.$push, videos: { $each: newVideos } };
   }
 
-  if (variations && Array.isArray(variations)) {
-    updateData.variations = variations.map((variation, index) => {
-      if (req.files && req.files[`variation_${index}_images`]) {
-        variation.images = req.files[`variation_${index}_images`].map(file => ({
-          url: file.path,
-          isPrimary: false
-        }));
-        if (variation.images.length > 0) {
-          variation.images[0].isPrimary = true;
-        }
-      }
-      return variation;
-    });
-  }
-  
-  const updatedProduct = await Product.findByIdAndUpdate(
-    req.params.id,
-    updateData,
-    {
-      new: true,
-      runValidators: true
+  // ---------- VARIATIONS ----------
+  let parsedVariations = [];
+  if (variations) {
+    try {
+      parsedVariations = JSON.parse(variations);
+    } catch (err) {
+      parsedVariations = [];
     }
-  );
-  
+  }
+
+  // Clone existing variations so we can merge
+  const mergedVariations = product.variations ? JSON.parse(JSON.stringify(product.variations)) : [];
+
+  // Go through each incoming variation and merge with existing
+  if (Array.isArray(parsedVariations)) {
+    parsedVariations.forEach((incomingVar, index) => {
+      // If this variation already exists, merge
+      if (mergedVariations[index]) {
+        mergedVariations[index] = {
+          ...mergedVariations[index],
+          ...incomingVar // merge fields like price, stock etc.
+        };
+      } else {
+        // New variation (doesn't exist yet)
+        mergedVariations[index] = incomingVar;
+      }
+
+      // Handle uploaded images for this variation
+      const imagesField = `variation_${index}_images`;
+      if (req.files && req.files[imagesField]) {
+        const uploadedImages = req.files[imagesField].map((file, idx) => ({
+          url: file.path,
+          isPrimary: idx === 0
+        }));
+
+        // append rather than overwrite
+        mergedVariations[index].images = [
+          ...(mergedVariations[index].images || []),
+          ...uploadedImages
+        ];
+      }
+
+      // Handle uploaded videos for this variation
+      const videosField = `variation_${index}_videos`;
+      if (req.files && req.files[videosField]) {
+        const uploadedVideos = req.files[videosField].map(file => ({
+          url: file.path,
+          thumbnail: file.path
+        }));
+
+        mergedVariations[index].videos = [
+          ...(mergedVariations[index].videos || []),
+          ...uploadedVideos
+        ];
+      }
+    });
+
+    // Finally assign merged variations
+    updateData.variations = mergedVariations;
+  }
+
+  // ---------- SAVE ----------
+  const updatedProduct = await Product.findByIdAndUpdate(req.params.id, updateData, {
+    new: true,
+    runValidators: true
+  });
+
   res.status(200).json({
     status: 'success',
-    data: {
-      product: updatedProduct
-    }
+    data: { product: updatedProduct }
   });
 });
+
 
 exports.deleteProduct = catchAsync(async (req, res, next) => {
   const product = await Product.findById(req.params.id);

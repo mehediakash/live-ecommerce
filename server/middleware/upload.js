@@ -17,6 +17,8 @@ const storage = new CloudinaryStorage({
 
     if (file.fieldname.startsWith('variation_') && file.fieldname.endsWith('_images')) {
       folder = 'livestream-ecommerce/variations';
+    } else if (file.fieldname.startsWith('variation_') && file.fieldname.endsWith('_videos')) {
+      folder = 'livestream-ecommerce/variations';
     } else if (file.fieldname === 'images' || file.fieldname === 'image') {
       folder = 'livestream-ecommerce/products';
     } else if (file.fieldname === 'videos') {
@@ -44,10 +46,11 @@ const storage = new CloudinaryStorage({
 const fileFilter = (req, file, cb) => {
   const imageOnlyFields = ['avatar', 'thumbnail', 'categoryImage'];
   const variationImage = file.fieldname.startsWith('variation_') && file.fieldname.endsWith('_images');
+  const variationVideo = file.fieldname.startsWith('variation_') && file.fieldname.endsWith('_videos');
 
   if (variationImage || file.fieldname === 'images' || file.fieldname === 'image') {
     return file.mimetype.startsWith('image') ? cb(null, true) : cb(new Error('Only image files are allowed'), false);
-  } else if (file.fieldname === 'videos') {
+  } else if (variationVideo || file.fieldname === 'videos') {
     return file.mimetype.startsWith('video') ? cb(null, true) : cb(new Error('Only video files are allowed'), false);
   } else if (imageOnlyFields.includes(file.fieldname)) {
     return file.mimetype.startsWith('image') ? cb(null, true) : cb(new Error(`Only image files are allowed for ${file.fieldname}`), false);
@@ -56,14 +59,14 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Multer upload setup
+// Multer upload setup (same)
 const multerUpload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 20 * 1024 * 1024, files: 20 }
+  limits: { fileSize: 20 * 1024 * 1024, files: 50 }
 });
 
-// Helper function to wrap multer.fields and fix paths
+// Helper to wrap multer.fields and fix paths
 const createUpload = (fields) => {
   const uploader = multerUpload.fields(fields);
   return (req, res, next) => {
@@ -81,7 +84,6 @@ const createUpload = (fields) => {
           }
         }
       }
-
       next();
     });
   };
@@ -89,30 +91,23 @@ const createUpload = (fields) => {
 
 // Pre-configured upload setups
 const uploadConfigs = {
-  product: createUpload([
-    { name: 'images', maxCount: 10 },
-    { name: 'videos', maxCount: 5 }
-  ]),
-
-  productWithVariations: (variationCount = 0) => {
+  product: (() => {
+    // Register up to 20 variations fields
     const fields = [
       { name: 'images', maxCount: 10 },
       { name: 'videos', maxCount: 5 }
     ];
-    for (let i = 0; i < variationCount; i++) {
+    for (let i = 0; i < 20; i++) {
       fields.push({ name: `variation_${i}_images`, maxCount: 5 });
+      fields.push({ name: `variation_${i}_videos`, maxCount: 3 });
     }
     return createUpload(fields);
-  },
+  })(),
 
   variation: createUpload([{ name: 'images', maxCount: 5 }]),
-
   user: createUpload([{ name: 'avatar', maxCount: 1 }]),
-
   stream: createUpload([{ name: 'thumbnail', maxCount: 1 }]),
-
   category: createUpload([{ name: 'categoryImage', maxCount: 1 }]),
-
   training: createUpload([{ name: 'thumbnail', maxCount: 1 }])
 };
 
