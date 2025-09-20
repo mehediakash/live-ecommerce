@@ -1,6 +1,7 @@
 const Product = require('../models/Product');
 const User = require('../models/User');
 const catchAsync = require('../utils/catchAsync');
+const PriceAlert = require('../models/PriceAlert');
 
 // exports.createProduct = catchAsync(async (req, res, next) => {
 //   const {
@@ -225,7 +226,9 @@ exports.createProduct = catchAsync(async (req, res, next) => {
 exports.getProduct = catchAsync(async (req, res, next) => {
   const product = await Product.findById(req.params.id)
     .populate('seller', 'profile firstName lastName sellerProfile')
+    .populate('category', 'name slug parent') // 👈 populate category here
     .populate('reviews');
+    
   
   if (!product) {
     return res.status(404).json({
@@ -247,7 +250,7 @@ exports.getProduct = catchAsync(async (req, res, next) => {
 });
 
 exports.getAllProducts = catchAsync(async (req, res, next) => {
-  const {
+  let {
     category,
     seller,
     status,
@@ -259,31 +262,54 @@ exports.getAllProducts = catchAsync(async (req, res, next) => {
     limit = 20,
     sort = '-createdAt'
   } = req.query;
-  
+
+  // convert page & limit to numbers
+  page = parseInt(page, 10) || 1;
+  limit = parseInt(limit, 10) || 20;
+
   const filter = {};
-  
-  if (category) filter.category = category;
+
+  // If category is provided as slug or ID
+  if (category) {
+    // try direct ObjectId first
+    if (/^[0-9a-fA-F]{24}$/.test(category)) {
+      filter.category = category;
+    } else {
+      // if slug passed (e.g. electronics), find the category ID first
+      const catDoc = await Category.findOne({ slug: category }).select('_id');
+      if (catDoc) filter.category = catDoc._id;
+      else filter.category = null; // no products if category not found
+    }
+  }
+
   if (seller) filter.seller = seller;
   if (status) filter.status = status;
   if (auction === 'true') filter['auction.isAuction'] = true;
+
   if (minPrice || maxPrice) {
     filter.price = {};
     if (minPrice) filter.price.$gte = Number(minPrice);
     if (maxPrice) filter.price.$lte = Number(maxPrice);
   }
-  
+
   if (search) {
+    // make sure you created a text index on Product fields
     filter.$text = { $search: search };
   }
-  
-  const products = await Product.find(filter)
+
+  // Find products
+  const productsQuery = Product.find(filter)
     .populate('seller', 'profile firstName lastName sellerProfile')
+    .populate('category', 'name slug parent') // 👈 populate category here
     .sort(sort)
-    .limit(limit * 1)
+    .limit(limit)
     .skip((page - 1) * limit);
-  
-  const total = await Product.countDocuments(filter);
-  
+
+  const [products, total] = await Promise.all([
+    productsQuery,
+    Product.countDocuments(filter)
+  ]);
+
   res.status(200).json({
     status: 'success',
     results: products.length,
@@ -294,6 +320,7 @@ exports.getAllProducts = catchAsync(async (req, res, next) => {
     }
   });
 });
+
 
 exports.updateProduct = catchAsync(async (req, res, next) => {
   const product = await Product.findById(req.params.id);
@@ -465,45 +492,54 @@ exports.deleteProduct = catchAsync(async (req, res, next) => {
   });
 });
 
-exports.addVariation = catchAsync(async (req, res, next) => {
-  const product = await Product.findById(req.params.productId);
+exports.addVariation = async (req, res) => {
+  try {
+    const productId = req.params.productId;
+    const { type, name, value, price, quantity } = req.body;
 
-  if (!product) {
-    return res.status(404).json({
-      status: 'error',
-      message: 'Product not found'
-    });
-  }
+    // Build variation object
+    const variation = {
+      type,
+      name,
+      value,
+      price,
+      quantity,
+      images: [],
+      videos: []
+    };
 
-  if (product.seller.toString() !== req.user.id && req.user.role !== 'admin') {
-    return res.status(403).json({
-      status: 'error',
-      message: 'You are not authorized to add a variation to this product'
-    });
-  }
-
-  const newVariation = { ...req.body };
-
-  if (req.files && req.files.variation_0_images) {
-    newVariation.images = req.files.variation_0_images.map(file => ({
-      url: file.path,
-      isPrimary: false
-    }));
-    if (newVariation.images.length > 0) {
-      newVariation.images[0].isPrimary = true;
+    // If files were uploaded, map them:
+    if (req.files) {
+      Object.keys(req.files).forEach((field) => {
+        if (field.includes('images')) {
+          req.files[field].forEach(file => {
+            variation.images.push({ url: file.path });
+          });
+        }
+        if (field.includes('videos')) {
+          req.files[field].forEach(file => {
+            variation.videos.push({ url: file.path });
+          });
+        }
+      });
     }
+
+    // Push variation to product
+    const product = await Product.findById(productId);
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    product.variations.push(variation);
+    await product.save();
+
+    res.status(201).json(product);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server Error' });
   }
+};
 
-  product.variations.push(newVariation);
-  await product.save();
 
-  res.status(201).json({
-    status: 'success',
-    data: {
-      product
-    }
-  });
-});
+
 
 exports.updateVariation = catchAsync(async (req, res, next) => {
   const product = await Product.findById(req.params.productId);
@@ -531,14 +567,27 @@ exports.updateVariation = catchAsync(async (req, res, next) => {
     });
   }
 
+  // Merge body data (other fields)
   Object.assign(variation, req.body);
 
+  // Replace images if uploaded (instead of pushing)
   if (req.files && req.files.images) {
-    const newImages = req.files.images.map(file => ({
+    variation.images = req.files.images.map(file => ({
       url: file.path,
       isPrimary: false
     }));
-    variation.images.push(...newImages);
+
+    // Keep first image as primary if exists
+    if (variation.images.length > 0) {
+      variation.images[0].isPrimary = true;
+    }
+  }
+
+  // Replace videos if uploaded (instead of pushing)
+  if (req.files && req.files.videos) {
+    variation.videos = req.files.videos.map(file => ({
+      url: file.path
+    }));
   }
 
   await product.save();
@@ -550,6 +599,7 @@ exports.updateVariation = catchAsync(async (req, res, next) => {
     }
   });
 });
+
 
 exports.deleteVariation = catchAsync(async (req, res, next) => {
   const product = await Product.findById(req.params.productId);
@@ -568,16 +618,20 @@ exports.deleteVariation = catchAsync(async (req, res, next) => {
     });
   }
 
-  const variation = product.variations.id(req.params.variationId);
+  // Use filter to remove the variation
+  const variationIndex = product.variations.findIndex(
+    v => v._id.toString() === req.params.variationId
+  );
 
-  if (!variation) {
+  if (variationIndex === -1) {
     return res.status(404).json({
       status: 'error',
       message: 'Variation not found'
     });
   }
 
-  variation.remove();
+  // Remove the variation from array
+  product.variations.splice(variationIndex, 1);
   await product.save();
 
   res.status(204).json({
@@ -643,23 +697,30 @@ exports.startAuction = catchAsync(async (req, res, next) => {
   });
 });
 
+
+
 exports.setPriceAlert = catchAsync(async (req, res, next) => {
   const { productId, targetPrice } = req.body;
-  
+
+
   const product = await Product.findById(productId);
-  
   if (!product) {
     return res.status(404).json({
       status: 'error',
-      message: 'Product not found'
+      message: 'Product not found',
     });
   }
-  
-  // In a real application, you would store price alerts in a separate collection
-  // and have a background job to check for price changes
-  
-  res.status(200).json({
+
+
+  const alert = await PriceAlert.create({
+    user: req.user._id, 
+    product: productId,
+    targetPrice,
+  });
+
+  res.status(201).json({
     status: 'success',
-    message: 'Price alert set successfully'
+    message: 'Price alert set successfully',
+    data: alert,
   });
 });

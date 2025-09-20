@@ -4,6 +4,7 @@ const cors = require('cors');
 const http = require('http');
 const socketIo = require('socket.io');
 const dotenv = require('dotenv');
+const checkPriceAlerts = require('./utils/priceChecker');
 
 dotenv.config();
 
@@ -212,6 +213,10 @@ app.use((req, res) => {
     message: `Can't find ${req.originalUrl} on this server!`
   });
 });
+
+setInterval(() => {
+  checkPriceAlerts();
+}, 10 * 60 * 1000); // 10 min
 
 // Start server
 const PORT = process.env.PORT || 5000;

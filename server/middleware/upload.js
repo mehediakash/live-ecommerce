@@ -9,7 +9,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Create storage engine
+// Cloudinary storage setup
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: (req, file) => {
@@ -31,8 +31,9 @@ const storage = new CloudinaryStorage({
       folder = 'livestream-ecommerce/categories';
     }
 
-    // Image transformations
-    const transformation = file.mimetype.startsWith('image') ? [{ width: 500, height: 500, crop: 'limit' }] : [];
+    const transformation = file.mimetype.startsWith('image')
+      ? [{ width: 500, height: 500, crop: 'limit' }]
+      : [];
 
     return {
       folder,
@@ -42,37 +43,46 @@ const storage = new CloudinaryStorage({
   }
 });
 
-// File filter function
+// File filter to allow only valid types
 const fileFilter = (req, file, cb) => {
   const imageOnlyFields = ['avatar', 'thumbnail', 'categoryImage'];
-  const variationImage = file.fieldname.startsWith('variation_') && file.fieldname.endsWith('_images');
-  const variationVideo = file.fieldname.startsWith('variation_') && file.fieldname.endsWith('_videos');
 
-  if (variationImage || file.fieldname === 'images' || file.fieldname === 'image') {
-    return file.mimetype.startsWith('image') ? cb(null, true) : cb(new Error('Only image files are allowed'), false);
-  } else if (variationVideo || file.fieldname === 'videos') {
-    return file.mimetype.startsWith('video') ? cb(null, true) : cb(new Error('Only video files are allowed'), false);
-  } else if (imageOnlyFields.includes(file.fieldname)) {
-    return file.mimetype.startsWith('image') ? cb(null, true) : cb(new Error(`Only image files are allowed for ${file.fieldname}`), false);
-  } else {
-    return cb(new Error('Invalid file type or field name'), false);
+  const isVariationImage = file.fieldname.startsWith('variation_') && file.fieldname.endsWith('_images');
+  const isVariationVideo = file.fieldname.startsWith('variation_') && file.fieldname.endsWith('_videos');
+
+  // Image fields
+  if (isVariationImage || file.fieldname === 'images' || file.fieldname === 'image' || imageOnlyFields.includes(file.fieldname)) {
+    if (file.mimetype.startsWith('image')) return cb(null, true);
+    return cb(new Error(`Only image files are allowed for ${file.fieldname}`), false);
   }
+
+  // Video fields
+  if (isVariationVideo || file.fieldname === 'videos') {
+    // Sometimes browsers send wrong MIME for MP4; accept mp4 extension too
+    if (file.mimetype.startsWith('video') || file.originalname.match(/\.(mp4|mov|avi|mkv)$/i)) {
+      return cb(null, true);
+    }
+    return cb(new Error(`Only video files are allowed for ${file.fieldname}`), false);
+  }
+
+  return cb(new Error(`Invalid file field: ${file.fieldname}`), false);
 };
 
-// Multer upload setup (same)
+// Multer setup
 const multerUpload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 20 * 1024 * 1024, files: 50 }
+  limits: { fileSize: 50 * 1024 * 1024, files: 50 }
 });
 
-// Helper to wrap multer.fields and fix paths
+// Helper to create multi-field upload
 const createUpload = (fields) => {
   const uploader = multerUpload.fields(fields);
   return (req, res, next) => {
     uploader(req, res, (err) => {
       if (err) return next(err);
 
+      // Ensure all files have a valid path
       if (req.files) {
         for (const key in req.files) {
           if (Array.isArray(req.files[key])) {
@@ -89,10 +99,9 @@ const createUpload = (fields) => {
   };
 };
 
-// Pre-configured upload setups
+// Upload configurations
 const uploadConfigs = {
   product: (() => {
-    // Register up to 20 variations fields
     const fields = [
       { name: 'images', maxCount: 10 },
       { name: 'videos', maxCount: 5 }
@@ -104,7 +113,11 @@ const uploadConfigs = {
     return createUpload(fields);
   })(),
 
-  variation: createUpload([{ name: 'images', maxCount: 5 }]),
+  variation: createUpload([
+    { name: 'images', maxCount: 5 },
+    { name: 'videos', maxCount: 3 }
+  ]),
+
   user: createUpload([{ name: 'avatar', maxCount: 1 }]),
   stream: createUpload([{ name: 'thumbnail', maxCount: 1 }]),
   category: createUpload([{ name: 'categoryImage', maxCount: 1 }]),
