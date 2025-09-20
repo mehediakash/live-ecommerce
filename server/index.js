@@ -5,6 +5,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const dotenv = require('dotenv');
 const checkPriceAlerts = require('./utils/priceChecker');
+const bodyParser = require('body-parser'); // 🔹 Added for Stripe webhook
 
 dotenv.config();
 
@@ -31,7 +32,7 @@ const socialRoutes = require('./routes/social');
 const trainingRoutes = require('./routes/training');
 const sellerAnalyticsRoutes = require('./routes/sellerAnalytics');
 const bulkOperationsRoutes = require('./routes/bulkOperations');
-
+const paymentController = require('./controllers/paymentController'); // 🔹 Stripe webhook controller
 
 const app = express();
 const server = http.createServer(app);
@@ -57,6 +58,13 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Stripe Webhook route (must be before JSON parser for this route)
+app.post(
+  '/api/v1/payments/webhook',
+  bodyParser.raw({ type: 'application/json' }),
+  paymentController.handleWebhook
+);
+
 // Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/streams', streamRoutes);
@@ -80,7 +88,6 @@ app.use('/api/v1/training', trainingRoutes);
 app.use('/api/v1/seller-analytics', sellerAnalyticsRoutes);
 app.use('/api/v1/bulk', bulkOperationsRoutes);
 
-
 if (process.env.NODE_ENV === 'production') {
   analyticsService.startScheduledJobs();
 }
@@ -89,6 +96,7 @@ process.on('SIGTERM', () => {
   analyticsService.stopScheduledJobs();
   process.exit(0);
 });
+
 // Socket.io connections
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
@@ -122,8 +130,6 @@ io.on('connection', (socket) => {
   // Moderation events
   socket.on('moderation-action', (data) => {
     const { streamId, action, targetUserId, reason } = data;
-    
-    // Broadcast to moderators and stream owner
     socket.to(`stream_${streamId}_moderators`).emit('moderation-update', {
       action,
       targetUserId,
@@ -136,8 +142,6 @@ io.on('connection', (socket) => {
   // Interactive features
   socket.on('poll-vote', (data) => {
     const { streamId, pollId, optionIndex } = data;
-    
-    // Broadcast vote to all viewers
     socket.to(streamId).emit('poll-vote-update', {
       pollId,
       optionIndex,
@@ -148,8 +152,6 @@ io.on('connection', (socket) => {
   // Q&A events
   socket.on('question-submit', (data) => {
     const { streamId, question } = data;
-    
-    // Broadcast to stream owner and moderators
     socket.to(`stream_${streamId}_moderators`).emit('new-question', {
       question,
       userId: socket.userId,

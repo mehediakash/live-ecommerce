@@ -57,40 +57,44 @@ exports.createCheckoutSession = catchAsync(async (req, res, next) => {
 });
 
 
+
+
 exports.handleWebhook = catchAsync(async (req, res, next) => {
   const signature = req.headers['stripe-signature'];
-  const payload = req.body;
-  
+  const payload = req.body; // raw body as Buffer
+
   try {
+    // PaymentService.handleWebhook expects raw string or Buffer
     const event = await PaymentService.handleWebhook(
       payload,
       signature,
       process.env.STRIPE_WEBHOOK_SECRET
     );
-    
+
     switch (event.type) {
       case 'payment_intent.succeeded':
         const paymentIntent = event.data.object;
-        await handlePaymentSuccess(paymentIntent);
+        await handlePaymentSuccess(paymentIntent); // তোমার existing logic
         break;
-        
+
       case 'payment_intent.payment_failed':
         const failedPayment = event.data.object;
-        await handlePaymentFailure(failedPayment);
+        await handlePaymentFailure(failedPayment); // existing logic
         break;
-        
+
       case 'checkout.session.completed':
         const session = event.data.object;
-        await handleCheckoutCompletion(session);
+        await handleCheckoutCompletion(session); // existing logic
         break;
     }
-    
+
     res.status(200).json({ received: true });
   } catch (error) {
     console.error('Webhook error:', error);
     res.status(400).json({ error: error.message });
   }
 });
+
 
 // Helper functions
 async function handlePaymentSuccess(paymentIntent) {
@@ -130,28 +134,29 @@ async function handleCheckoutCompletion(session) {
 
 exports.processRefund = catchAsync(async (req, res, next) => {
   const { orderId, amount } = req.body;
-  
-  const order = await Order.findById(orderId);
+
+  const order = await Order.findOne({ orderId });
   if (!order) {
-    return res.status(404).json({
+    return res.status(404).json({ status: 'error', message: 'Order not found' });
+  }
+
+  const refundAmount = amount || order.totalAmount;
+
+  if (refundAmount > order.payment.amount) {
+    return res.status(400).json({
       status: 'error',
-      message: 'Order not found'
+      message: `Refund amount ($${refundAmount}) is greater than charged amount ($${order.payment.amount})`
     });
   }
-  
+
   const refund = await PaymentService.refundPayment(
     order.payment.transactionId,
-    amount
+    refundAmount
   );
-  
-  order.refundAmount = amount || order.totalAmount;
+
+  order.refundAmount = refundAmount;
   order.payment.status = 'refunded';
   await order.save();
-  
-  res.status(200).json({
-    status: 'success',
-    data: {
-      refund
-    }
-  });
+
+  res.status(200).json({ status: 'success', data: { refund } });
 });

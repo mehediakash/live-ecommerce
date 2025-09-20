@@ -3,6 +3,8 @@ const Product = require('../models/Product');
 const IVSService = require('../services/ivsService');
 const catchAsync = require('../utils/catchAsync');
 const NotificationService = require('../services/notificationService');
+const Category = require('../models/Category'); // Added for category reference
+
 exports.createStream = catchAsync(async (req, res, next) => {
   const {
     title,
@@ -16,8 +18,17 @@ exports.createStream = catchAsync(async (req, res, next) => {
   } = req.body;
   const io = req.app.get('io');
   // Create IVS channel
+
+   // Validate category
+  const categoryExists = await Category.findById(category);
+  if (!categoryExists) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Category not found'
+    });
+  }
  
-    const ivsChannel = await IVSService.createChannel(title);
+    const ivsChannel = await IVSService.getOrCreateChannel(title);
 
   const stream = await Stream.create({
     title,
@@ -28,7 +39,8 @@ exports.createStream = catchAsync(async (req, res, next) => {
     seller: req.user.id,
     ivsChannelArn: ivsChannel.arn,
     ivsPlaybackUrl: ivsChannel.playbackUrl,
-    ivsStreamKey: ivsChannel.streamKey, // This should work
+
+       ivsStreamKey: ivsChannel.streamKey, // ✅ এখানে save হচ্ছে
     scheduledStart,
     products,
     isChatEnabled,
@@ -73,6 +85,7 @@ exports.getStream = catchAsync(async (req, res, next) => {
     .populate('seller', 'profile firstName lastName')
     .populate('products')
     .populate('currentProduct')
+     .populate('category', 'name description image') // populate category
     .populate('moderators', 'profile firstName lastName')
     .populate('coHosts', 'profile firstName lastName');
   
@@ -102,13 +115,26 @@ exports.getAllStreams = catchAsync(async (req, res, next) => {
   } = req.query;
   
   const filter = {};
+   // If category is passed as ID or name
+  if (category) {
+    let cat = null;
+    if (mongoose.Types.ObjectId.isValid(category)) {
+      cat = await Category.findById(category);
+    }
+    if (!cat) {
+      cat = await Category.findOne({ name: category });
+    }
+    if (cat) filter.category = cat._id;
+  }
+  if (status) filter.status = status;
+  if (seller) filter.seller = seller;
   
-  if (category) filter.category = category;
   if (status) filter.status = status;
   if (seller) filter.seller = seller;
   
   const streams = await Stream.find(filter)
     .populate('seller', 'profile firstName lastName')
+    .populate('category', 'name description image') // populate category
     .sort(sort)
     .limit(limit * 1)
     .skip((page - 1) * limit);
@@ -153,6 +179,15 @@ exports.updateStream = catchAsync(async (req, res, next) => {
       status: 'error',
       message: 'You are not authorized to update this stream'
     });
+  }
+  if (category) {
+    const categoryExists = await Category.findById(category);
+    if (!categoryExists) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Category not found'
+      });
+    }
   }
   
   const updatedStream = await Stream.findByIdAndUpdate(
@@ -211,29 +246,33 @@ exports.deleteStream = catchAsync(async (req, res, next) => {
   });
 });
 
+
 exports.startStream = catchAsync(async (req, res, next) => {
-  const stream = await Stream.findById(req.params.id);
-  
-  if (!stream) {
-    return res.status(404).json({
-      status: 'error',
-      message: 'Stream not found'
-    });
+  const stream = await Stream.findById(req.params.id)
+    .populate('seller', 'followers');
+
+  if (!stream) return res.status(404).json({ status: 'error', message: 'Stream not found' });
+  if (stream.seller._id.toString() !== req.user.id && req.user.role !== 'admin') {
+    return res.status(403).json({ status: 'error', message: 'Not authorized' });
   }
-  
-  // Check if user is the stream owner
-  if (stream.seller.toString() !== req.user.id && req.user.role !== 'admin') {
-    return res.status(403).json({
-      status: 'error',
-      message: 'You are not authorized to start this stream'
-    });
+
+  // ✅ Ensure IVS fields exist
+  if (!stream.ivsPlaybackUrl || !stream.ivsStreamKey) {
+    // fetch or create IVS channel again
+    const ivsData = await IVSService.getOrCreateChannel(stream.title);
+    stream.ivsChannelArn = ivsData.arn;
+    stream.ivsPlaybackUrl = ivsData.playbackUrl;
+    stream.ivsStreamKey = ivsData.streamKey;
   }
-  
+
   stream.status = 'live';
   stream.actualStart = new Date();
   await stream.save();
 
-   if (followerIds.length > 0) {
+  // notification
+  const io = req.app.get('io');
+  const followerIds = stream.seller.followers.map(f => f.toString());
+  if (followerIds.length > 0) {
     await NotificationService.sendBulkNotifications(
       io,
       followerIds,
@@ -243,14 +282,22 @@ exports.startStream = catchAsync(async (req, res, next) => {
       { streamId: stream._id.toString() }
     );
   }
-  
+
+  // ✅ Send full stream object with IVS data
+  const streamObj = stream.toObject();
   res.status(200).json({
     status: 'success',
     data: {
-      stream
+      stream: {
+        ...streamObj,
+        ivsPlaybackUrl: stream.ivsPlaybackUrl,
+        ivsStreamKey: stream.ivsStreamKey
+      }
     }
   });
 });
+
+
 
 exports.endStream = catchAsync(async (req, res, next) => {
   const stream = await Stream.findById(req.params.id);

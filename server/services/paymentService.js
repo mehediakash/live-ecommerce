@@ -75,14 +75,10 @@ class PaymentService {
     }
   }
 
-  async handleWebhook(payload, signature, webhookSecret) {
-    try {
-      const event = stripe.webhooks.constructEvent(payload, signature, webhookSecret);
-      return event;
-    } catch (error) {
-      console.error('Webhook signature verification failed:', error);
-      throw error;
-    }
+    async handleWebhook(rawBody, signature, webhookSecret) {
+    // Stripe expects raw string or Buffer
+    const event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+    return event;
   }
 
   async refundPayment(paymentIntentId, amount) {

@@ -15,8 +15,9 @@ const streamSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  category: {
-    type: String,
+ category: {  // <-- change here
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Category',
     required: true
   },
   tags: [String],
