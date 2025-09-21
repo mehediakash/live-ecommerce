@@ -11,6 +11,7 @@ const catchAsync = require('../utils/catchAsync');
 exports.createOrder = catchAsync(async (req, res, next) => {
   const {
     items,
+    stream,
     shippingAddress,
     paymentMethodId,
     useSavedAddress,
@@ -189,6 +190,7 @@ exports.createOrder = catchAsync(async (req, res, next) => {
     buyer: req.user.id,
     seller: sellerId,
     items: orderItems,
+    stream: stream || null,
     totalAmount: parseFloat(totalAmount.toFixed(2)),
     subtotal: parseFloat(subtotal.toFixed(2)),
     shippingAddress: finalShippingAddress,
@@ -220,8 +222,11 @@ exports.createOrder = catchAsync(async (req, res, next) => {
         insuranceCost: parseFloat(insuranceCost.toFixed(2)),
         insuredValue: parseFloat(insuredValue.toFixed(2))
       }
+      
     }
+    
   };
+  
 
   // Add international fields if applicable
   if (finalShippingAddress.country !== 'GB') {

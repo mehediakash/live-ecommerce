@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Stream = require('../models/Stream');
@@ -218,7 +219,7 @@ exports.getSalesReport = catchAsync(async (req, res, next) => {
 
 exports.getProductPerformance = catchAsync(async (req, res, next) => {
   const { productId, startDate, endDate } = req.query;
-  
+
   const dateFilter = {};
   if (startDate && endDate) {
     dateFilter.createdAt = {
@@ -227,26 +228,32 @@ exports.getProductPerformance = catchAsync(async (req, res, next) => {
     };
   }
 
-  const productFilter = productId ? { _id: productId } : { seller: req.user._id };
+  const productFilter = productId
+    ? { _id: new mongoose.Types.ObjectId(productId) }
+    : { seller: req.user._id };
 
   const productPerformance = await Product.aggregate([
-    {
-      $match: productFilter
-    },
+    { $match: productFilter },
     {
       $lookup: {
         from: 'orders',
-        localField: '_id',
-        foreignField: 'items.product',
-        as: 'orders',
+        let: { productId: '$_id' },
         pipeline: [
           {
             $match: {
               'payment.status': 'completed',
               ...dateFilter
             }
+          },
+          {
+            $match: {
+              $expr: {
+                $in: ['$$productId', '$items.product']
+              }
+            }
           }
-        ]
+        ],
+        as: 'orders'
       }
     },
     {
@@ -255,54 +262,48 @@ exports.getProductPerformance = catchAsync(async (req, res, next) => {
         price: 1,
         images: 1,
         totalSales: {
-          $reduce: {
-            input: '$orders',
-            initialValue: 0,
-            in: {
-              $add: [
-                '$$value',
-                {
-                  $sum: {
-                    $map: {
-                      input: {
-                        $filter: {
-                          input: '$$this.items',
-                          as: 'item',
-                          cond: { $eq: ['$$item.product', '$_id'] }
-                        }
-                      },
-                      as: 'matchedItem',
-                      in: '$$matchedItem.quantity'
-                    }
+          $sum: {
+            $map: {
+              input: '$orders',
+              as: 'order',
+              in: {
+                $sum: {
+                  $map: {
+                    input: {
+                      $filter: {
+                        input: '$$order.items',
+                        as: 'item',
+                        cond: { $eq: ['$$item.product', '$_id'] }
+                      }
+                    },
+                    as: 'matchedItem',
+                    in: '$$matchedItem.quantity'
                   }
                 }
-              ]
+              }
             }
           }
         },
         totalRevenue: {
-          $reduce: {
-            input: '$orders',
-            initialValue: 0,
-            in: {
-              $add: [
-                '$$value',
-                {
-                  $sum: {
-                    $map: {
-                      input: {
-                        $filter: {
-                          input: '$$this.items',
-                          as: 'item',
-                          cond: { $eq: ['$$item.product', '$_id'] }
-                        }
-                      },
-                      as: 'matchedItem',
-                      in: { $multiply: ['$$matchedItem.quantity', '$$matchedItem.price'] }
-                    }
+          $sum: {
+            $map: {
+              input: '$orders',
+              as: 'order',
+              in: {
+                $sum: {
+                  $map: {
+                    input: {
+                      $filter: {
+                        input: '$$order.items',
+                        as: 'item',
+                        cond: { $eq: ['$$item.product', '$_id'] }
+                      }
+                    },
+                    as: 'matchedItem',
+                    in: { $multiply: ['$$matchedItem.quantity', '$$matchedItem.price'] }
                   }
                 }
-              ]
+              }
             }
           }
         },
@@ -315,9 +316,7 @@ exports.getProductPerformance = catchAsync(async (req, res, next) => {
         }
       }
     },
-    {
-      $sort: { totalRevenue: -1 }
-    }
+    { $sort: { totalRevenue: -1 } }
   ]);
 
   res.status(200).json({
@@ -326,30 +325,61 @@ exports.getProductPerformance = catchAsync(async (req, res, next) => {
   });
 });
 
+
+
 exports.getStreamAnalytics = catchAsync(async (req, res, next) => {
   const { streamId, startDate, endDate } = req.query;
-  
-  const dateFilter = {};
-  if (startDate && endDate) {
-    dateFilter.createdAt = {
-      $gte: new Date(startDate),
-      $lte: new Date(endDate)
-    };
-  }
 
-  const streamFilter = streamId ? 
-    { _id: streamId, seller: req.user._id } : 
-    { seller: req.user._id, ...dateFilter };
+  // date filter
+  const start = startDate ? new Date(startDate) : null;
+  const end = endDate ? new Date(endDate) : null;
+
+  // stream filter
+  const streamFilter = { seller: new mongoose.Types.ObjectId(req.user._id) };
+  if (streamId) streamFilter._id = new mongoose.Types.ObjectId(streamId);
 
   const streamAnalytics = await Stream.aggregate([
-    {
-      $match: streamFilter
-    },
+    { $match: streamFilter },
     {
       $lookup: {
         from: 'orders',
-        localField: '_id',
-        foreignField: 'stream',
+        let: { streamId: '$_id' },
+        pipeline: [
+          {
+            // convert string stream to ObjectId if needed
+            $addFields: {
+              streamObjId: {
+                $cond: [
+                  { $eq: [{ $type: '$stream' }, 'string'] },
+                  { $toObjectId: '$stream' },
+                  '$stream'
+                ]
+              }
+            }
+          },
+          {
+            $match: {
+              $expr: {
+                $eq: ['$streamObjId', '$$streamId']
+              }
+            }
+          },
+          ...(start && end
+            ? [
+                {
+                  $match: {
+                    createdAt: {
+                      $gte: start,
+                      $lte: end
+                    }
+                  }
+                }
+              ]
+            : []),
+          {
+            $match: { 'payment.status': 'completed' }
+          }
+        ],
         as: 'orders'
       }
     },
@@ -362,25 +392,22 @@ exports.getStreamAnalytics = catchAsync(async (req, res, next) => {
         totalViewers: 1,
         peakViewers: 1,
         products: 1,
-        orders: {
-          $filter: {
-            input: '$orders',
-            as: 'order',
-            cond: { $eq: ['$$order.payment.status', 'completed'] }
-          }
-        },
+        orders: 1,
         salesConversion: {
           $cond: [
             { $gt: ['$totalViewers', 0] },
-            { $multiply: [{ $divide: [{ $size: '$orders' }, '$totalViewers'] }, 100] },
+            {
+              $multiply: [
+                { $divide: [{ $size: '$orders' }, '$totalViewers'] },
+                100
+              ]
+            },
             0
           ]
         }
       }
     },
-    {
-      $sort: { actualStart: -1 }
-    }
+    { $sort: { actualStart: -1 } }
   ]);
 
   res.status(200).json({

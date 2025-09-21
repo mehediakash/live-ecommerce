@@ -345,31 +345,20 @@ exports.endStream = catchAsync(async (req, res, next) => {
 // Add viewer
 exports.addViewer = catchAsync(async (req, res, next) => {
   const stream = await Stream.findById(req.params.id);
+  if (!stream) return res.status(404).json({ status: 'error', message: 'Stream not found' });
 
-  if (!stream) {
-    return res.status(404).json({
-      status: 'error',
-      message: 'Stream not found'
-    });
-  }
+  const io = req.app.get('io');
 
-  // Check if user already has an active entry
+  // Already joined?
   const existingViewer = stream.viewers.find(
     v => v.user.toString() === req.user.id && !v.leftAt
   );
 
   if (!existingViewer) {
-    // Add new viewer entry
-    stream.viewers.push({
-      user: req.user.id,
-      joinedAt: new Date()
-    });
-
-    // Increment total viewers count
-    stream.totalViewers += 1;
+    stream.viewers.push({ user: req.user.id, joinedAt: new Date() });
+    stream.totalViewers += 1; // Lifetime count
   }
 
-  // Update peak viewers
   const currentViewers = stream.viewers.filter(v => !v.leftAt).length;
   if (currentViewers > stream.peakViewers) {
     stream.peakViewers = currentViewers;
@@ -377,57 +366,56 @@ exports.addViewer = catchAsync(async (req, res, next) => {
 
   await stream.save();
 
-  res.status(200).json({
-    status: 'success',
-    data: {
-      stream
-    }
+  io.to(req.params.id).emit('viewer-updated', {
+    streamId: req.params.id,
+    type: 'add',
+    userId: req.user.id,
+    totalViewers: stream.totalViewers,
+    currentViewers,
+    peakViewers: stream.peakViewers
   });
+
+  res.status(200).json({ status: 'success', data: { stream } });
 });
 
 // Remove viewer
 exports.removeViewer = catchAsync(async (req, res, next) => {
   const stream = await Stream.findById(req.params.id);
+  if (!stream) return res.status(404).json({ status: 'error', message: 'Stream not found' });
 
-  if (!stream) {
-    return res.status(404).json({
-      status: 'error',
-      message: 'Stream not found'
-    });
-  }
+  const io = req.app.get('io');
 
-  // Find all active entries for this user
   const activeViewers = stream.viewers.filter(
     v => v.user.toString() === req.user.id && !v.leftAt
   );
 
   if (activeViewers.length === 0) {
-    return res.status(200).json({
-      status: 'success',
-      message: 'User was not viewing the stream'
-    });
+    return res.status(200).json({ status: 'success', message: 'User was not viewing the stream' });
   }
 
-  // Mark all active viewer entries as left
-  activeViewers.forEach(v => {
-    v.leftAt = new Date();
-  });
+  // Mark left
+  activeViewers.forEach(v => { v.leftAt = new Date(); });
 
-  // Recalculate peak viewers if needed (optional)
+  // এখন Active viewer গুলো গণনা করো
   const currentViewers = stream.viewers.filter(v => !v.leftAt).length;
-  if (currentViewers > stream.peakViewers) {
-    stream.peakViewers = currentViewers;
-  }
+
+  // যদি current totalViewers রাখতে চাও:
+  // stream.totalViewers = currentViewers;
 
   await stream.save();
 
-  res.status(200).json({
-    status: 'success',
-    data: {
-      stream
-    }
+  io.to(req.params.id).emit('viewer-updated', {
+    streamId: req.params.id,
+    type: 'remove',
+    userId: req.user.id,
+    totalViewers: stream.totalViewers,
+    currentViewers,
+    peakViewers: stream.peakViewers
   });
+
+  res.status(200).json({ status: 'success', data: { stream } });
 });
+
 
 
 exports.addModerator = catchAsync(async (req, res, next) => {

@@ -159,15 +159,15 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('authenticate', (userId) => {
-    socket.join(`user_${userId}`);
-    console.log(`User ${userId} joined their room`);
-  });
+  // socket.on('authenticate', (userId) => {
+  //   socket.join(`user_${userId}`);
+  //   console.log(`User ${userId} joined their room`);
+  // });
 
-  socket.on('join-stream', (streamId) => {
-    socket.join(streamId);
-    console.log(`User ${socket.id} joined stream ${streamId}`);
-  });
+  // socket.on('join-stream', (streamId) => {
+  //   socket.join(streamId);
+  //   console.log(`User ${socket.id} joined stream ${streamId}`);
+  // });
 
   socket.on('leave-stream', (streamId) => {
     socket.leave(streamId);
