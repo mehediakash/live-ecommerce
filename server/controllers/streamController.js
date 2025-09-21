@@ -40,7 +40,9 @@ exports.createStream = catchAsync(async (req, res, next) => {
     ivsChannelArn: ivsChannel.arn,
     ivsPlaybackUrl: ivsChannel.playbackUrl,
 
-       ivsStreamKey: ivsChannel.streamKey, // ✅ এখানে save হচ্ছে
+       ivsStreamKey: ivsChannel.streamKey, 
+         ivsIngestEndpoint: ivsChannel.ingestEndpoint,
+
     scheduledStart,
     products,
     isChatEnabled,
@@ -320,6 +322,7 @@ exports.endStream = catchAsync(async (req, res, next) => {
   stream.status = 'ended';
   stream.actualEnd = new Date();
   stream.duration = Math.round((stream.actualEnd - stream.actualStart) / 60000); // in minutes
+  stream.recordedUrl = `https://s3.amazonaws.com/myrecordingconfig/${stream._id}.mp4`;
   await stream.save();
   
   res.status(200).json({

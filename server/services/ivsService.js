@@ -1,129 +1,207 @@
-const IVS = require('@aws-sdk/client-ivs');
-
-const {
-  IvsClient,
+const { IvsClient, 
   CreateChannelCommand,
   GetChannelCommand,
   ListChannelsCommand,
+  UpdateChannelCommand,
   DeleteChannelCommand,
   GetStreamCommand,
   ListStreamsCommand,
   GetStreamKeyCommand,
   CreateStreamKeyCommand,
   ListStreamKeysCommand,
-  DeleteStreamKeyCommand
-} = IVS;
+  DeleteStreamKeyCommand,
+  GetRecordingConfigurationCommand,
+  CreateRecordingConfigurationCommand,
+  ListRecordingConfigurationsCommand,
+  DeleteRecordingConfigurationCommand 
+} = require('@aws-sdk/client-ivs');
 
 class IVSService {
   constructor() {
     this.ivs = new IvsClient({
-      region: process.env.AWS_REGION,
+      region: process.env.AWS_REGION || 'us-east-1',
       credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
       },
     });
   }
+
 async getOrCreateChannel(name) {
   try {
-    const channels = await this.listChannels();
-    let channel, streamKey;
+    // First try to list existing channels
+    const listCommand = new ListChannelsCommand({});
+    const listResponse = await this.ivs.send(listCommand);
 
-    if (channels.length > 0) {
-      channel = await this.getChannel(channels[0].arn);
+    if (listResponse.channels && listResponse.channels.length > 0) {
+      const existingChannel = listResponse.channels[0];
 
-      // List existing keys
-      const keys = await this.listStreamKeys(channel.arn);
+      // Get full channel details (this includes ingestEndpoint)
+      const getChannelCommand = new GetChannelCommand({
+        arn: existingChannel.arn
+      });
+      const channelDetails = await this.ivs.send(getChannelCommand);
 
-      if (keys.length > 0) {
-        streamKey = keys[0].value || keys[0].streamKey?.value;
+      // Get stream keys for the channel
+      const streamKeysCommand = new ListStreamKeysCommand({
+        channelArn: existingChannel.arn
+      });
+      const streamKeysResponse = await this.ivs.send(streamKeysCommand);
+
+      let streamKey;
+      if (streamKeysResponse.streamKeys && streamKeysResponse.streamKeys.length > 0) {
+        // Get the value of the first stream key
+        const getKeyCommand = new GetStreamKeyCommand({
+          arn: streamKeysResponse.streamKeys[0].arn
+        });
+        const keyResponse = await this.ivs.send(getKeyCommand);
+        streamKey = keyResponse.streamKey.value;
       } else {
-        // Cannot create new key due to quota → ask user to create manually
-        throw new Error(
-          'Stream key not found. AWS Standard channels allow only 1 stream key. Please create it manually in AWS IVS console.'
-        );
+        // Create new stream key if none exists
+        const createKeyCommand = new CreateStreamKeyCommand({
+          channelArn: existingChannel.arn
+        });
+        const keyResponse = await this.ivs.send(createKeyCommand);
+        streamKey = keyResponse.streamKey.value;
       }
 
-    } else {
-      // No channels → create new channel + key
-      const newChannel = await this.createChannel(name);
-      channel = {
-        arn: newChannel.arn,
-        playbackUrl: newChannel.playbackUrl,
-        ingestEndpoint: newChannel.ingestEndpoint
+      return {
+        arn: channelDetails.channel.arn,
+        playbackUrl: channelDetails.channel.playbackUrl,
+        streamKey: streamKey,
+        ingestEndpoint: channelDetails.channel.ingestEndpoint
       };
-      streamKey = newChannel.streamKey;
     }
 
-    return {
-      arn: channel.arn,
-      playbackUrl: channel.playbackUrl,
-      streamKey,
-      ingestEndpoint: channel.ingestEndpoint
+    // If no channels exist, create new one
+    return await this.createChannel(name);
+
+  } catch (error) {
+    console.error('Error getting or creating IVS channel:', error);
+    throw error;
+  }
+}
+
+
+  async createChannel(name) {
+    const params = {
+      name: name.substring(0, 128), // IVS channel names have max 128 chars
+      type: 'STANDARD',
+      authorized: false,
+      latencyMode: 'LOW',
+      recordingConfigurationArn: process.env.IVS_RECORDING_CONFIG_ARN
     };
-  } catch (err) {
-    console.error('IVS getOrCreateChannel error:', err);
-    throw err;
+
+    try {
+      // Create channel
+      const createCommand = new CreateChannelCommand(params);
+      const createResponse = await this.ivs.send(createCommand);
+      
+      // Create stream key for the channel
+      const streamKeyCommand = new CreateStreamKeyCommand({
+        channelArn: createResponse.channel.arn
+      });
+      const streamKeyResponse = await this.ivs.send(streamKeyCommand);
+
+      // Get complete channel details to ensure we have all data
+      const getChannelCommand = new GetChannelCommand({
+        arn: createResponse.channel.arn
+      });
+      const channelDetails = await this.ivs.send(getChannelCommand);
+
+      return {
+        arn: channelDetails.channel.arn,
+        playbackUrl: channelDetails.channel.playbackUrl,
+        streamKey: streamKeyResponse.streamKey.value,
+        ingestEndpoint: channelDetails.channel.ingestEndpoint
+      };
+    } catch (error) {
+      console.error('Error creating IVS channel:', error);
+      throw error;
+    }
   }
-}
 
-
-
-
-
-async createChannel(name) {
-  const params = {
-    name,
-    type: 'STANDARD',
-    authorized: false,
-    latencyMode: 'LOW',
-    recordingConfigurationArn: process.env.IVS_RECORDING_CONFIG_ARN
-  };
-
-  const command = new CreateChannelCommand(params);
-  const data = await this.ivs.send(command);
-
-  // Create stream key
-  const streamKeyCommand = new CreateStreamKeyCommand({
-    channelArn: data.channel.arn
-  });
-  const streamKeyData = await this.ivs.send(streamKeyCommand);
-
-  return {
-    arn: data.channel.arn,
-    playbackUrl: data.channel.playbackUrl,
-    streamKey: streamKeyData.streamKey.value,
-    ingestEndpoint: data.channel.ingestEndpoint
-  };
-}
   async getChannel(arn) {
-    const command = new GetChannelCommand({ arn });
-    const data = await this.ivs.send(command);
-    return data.channel;
+    try {
+      const command = new GetChannelCommand({ arn });
+      const response = await this.ivs.send(command);
+      return response.channel;
+    } catch (error) {
+      console.error('Error getting IVS channel:', error);
+      throw error;
+    }
   }
 
-  async listChannels() {
-    const command = new ListChannelsCommand({});
-    const data = await this.ivs.send(command);
-    return data.channels;
+   async getChannelDetails(arn) {
+    try {
+      const command = new GetChannelCommand({ arn });
+      const response = await this.ivs.send(command);
+      return response.channel;
+    } catch (error) {
+      console.error('Error getting IVS channel details:', error);
+      throw error;
+    }
+  }
+
+  async getStreamKey(channelArn) {
+    try {
+      const streamKeys = await this.listStreamKeys(channelArn);
+      if (streamKeys.length > 0) {
+        const command = new GetStreamKeyCommand({ arn: streamKeys[0].arn });
+        const response = await this.ivs.send(command);
+        return response.streamKey;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting stream key:', error);
+      throw error;
+    }
   }
 
   async listStreamKeys(channelArn) {
-    const command = new ListStreamKeysCommand({ channelArn });
-    const data = await this.ivs.send(command);
-    return data.streamKeys;
+    try {
+      const command = new ListStreamKeysCommand({ channelArn });
+      const response = await this.ivs.send(command);
+      return response.streamKeys || [];
+    } catch (error) {
+      console.error('Error listing stream keys:', error);
+      throw error;
+    }
   }
 
-  async createStreamKey(channelArn) {
-    const command = new CreateStreamKeyCommand({ channelArn });
-    const data = await this.ivs.send(command);
-    return data.streamKey;
+  async getStream(channelArn) {
+    try {
+      const command = new GetStreamCommand({ channelArn });
+      const response = await this.ivs.send(command);
+      return response.stream;
+    } catch (error) {
+      if (error.name === 'ResourceNotFoundException') {
+        return null; // Stream is not live
+      }
+      console.error('Error getting stream:', error);
+      throw error;
+    }
   }
 
   async deleteChannel(arn) {
-    const command = new DeleteChannelCommand({ arn });
-    await this.ivs.send(command);
-    return true;
+    try {
+      const command = new DeleteChannelCommand({ arn });
+      await this.ivs.send(command);
+      return true;
+    } catch (error) {
+      console.error('Error deleting IVS channel:', error);
+      throw error;
+    }
+  }
+
+  // Add this method to check if stream is live
+  async isStreamLive(channelArn) {
+    try {
+      const stream = await this.getStream(channelArn);
+      return stream !== null && stream.state === 'LIVE';
+    } catch (error) {
+      return false;
+    }
   }
 }
 

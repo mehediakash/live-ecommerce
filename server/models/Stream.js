@@ -33,6 +33,8 @@ const streamSchema = new mongoose.Schema({
   ivsPlaybackUrl: String,
   ivsStreamKey: String,
   streamKey: String, // For internal use
+  ivsIngestEndpoint: String, // ← ADD THIS FIELD
+  recordedUrl:String,
   status: {
     type: String,
     enum: ['scheduled', 'live', 'ended', 'cancelled'],
