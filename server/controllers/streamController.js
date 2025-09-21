@@ -342,44 +342,41 @@ exports.endStream = catchAsync(async (req, res, next) => {
   });
 });
 
+// Add viewer
 exports.addViewer = catchAsync(async (req, res, next) => {
   const stream = await Stream.findById(req.params.id);
-  
+
   if (!stream) {
     return res.status(404).json({
       status: 'error',
       message: 'Stream not found'
     });
   }
-  
-  // Check if user is already viewing
+
+  // Check if user already has an active entry
   const existingViewer = stream.viewers.find(
-    viewer => viewer.user.toString() === req.user.id && !viewer.leftAt
+    v => v.user.toString() === req.user.id && !v.leftAt
   );
-  
-  if (existingViewer) {
-    return res.status(200).json({
-      status: 'success',
-      message: 'User is already viewing the stream'
+
+  if (!existingViewer) {
+    // Add new viewer entry
+    stream.viewers.push({
+      user: req.user.id,
+      joinedAt: new Date()
     });
+
+    // Increment total viewers count
+    stream.totalViewers += 1;
   }
-  
-  // Add viewer
-  stream.viewers.push({
-    user: req.user.id,
-    joinedAt: new Date()
-  });
-  
-  stream.totalViewers += 1;
-  
-  // Update peak viewers if needed
-  const currentViewers = stream.viewers.filter(viewer => !viewer.leftAt).length;
+
+  // Update peak viewers
+  const currentViewers = stream.viewers.filter(v => !v.leftAt).length;
   if (currentViewers > stream.peakViewers) {
     stream.peakViewers = currentViewers;
   }
-  
+
   await stream.save();
-  
+
   res.status(200).json({
     status: 'success',
     data: {
@@ -388,26 +385,42 @@ exports.addViewer = catchAsync(async (req, res, next) => {
   });
 });
 
+// Remove viewer
 exports.removeViewer = catchAsync(async (req, res, next) => {
   const stream = await Stream.findById(req.params.id);
-  
+
   if (!stream) {
     return res.status(404).json({
       status: 'error',
       message: 'Stream not found'
     });
   }
-  
-  // Find and update viewer
-  const viewerIndex = stream.viewers.findIndex(
-    viewer => viewer.user.toString() === req.user.id && !viewer.leftAt
+
+  // Find all active entries for this user
+  const activeViewers = stream.viewers.filter(
+    v => v.user.toString() === req.user.id && !v.leftAt
   );
-  
-  if (viewerIndex !== -1) {
-    stream.viewers[viewerIndex].leftAt = new Date();
-    await stream.save();
+
+  if (activeViewers.length === 0) {
+    return res.status(200).json({
+      status: 'success',
+      message: 'User was not viewing the stream'
+    });
   }
-  
+
+  // Mark all active viewer entries as left
+  activeViewers.forEach(v => {
+    v.leftAt = new Date();
+  });
+
+  // Recalculate peak viewers if needed (optional)
+  const currentViewers = stream.viewers.filter(v => !v.leftAt).length;
+  if (currentViewers > stream.peakViewers) {
+    stream.peakViewers = currentViewers;
+  }
+
+  await stream.save();
+
   res.status(200).json({
     status: 'success',
     data: {
@@ -415,6 +428,7 @@ exports.removeViewer = catchAsync(async (req, res, next) => {
     }
   });
 });
+
 
 exports.addModerator = catchAsync(async (req, res, next) => {
   const { userId } = req.body;
