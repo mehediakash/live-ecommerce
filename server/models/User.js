@@ -121,12 +121,25 @@ social: {
     enum: ['user', 'seller', 'admin'],
     default: 'user'
   },
+  role: {
+  type: String,
+  enum: ['user', 'seller', 'admin'],
+  default: 'user'
+},
+status: {
+  type: String,
+  enum: ['active', 'suspended', 'banned'],
+  default: 'active'
+},
+statusReason: {
+  type: String
+},
   sellerProfile: {
     businessName: String,
     businessVerification: {
       status: {
         type: String,
-        enum: ['pending', 'verified', 'rejected'],
+        enum: ['pending', 'verified', 'rejected',],
         default: 'pending'
       },
       documents: [{
@@ -231,6 +244,12 @@ performanceMetrics: {
   timestamps: true
 });
 
+userSchema.virtual('orders', {
+  ref: 'Order',           // Order model
+  localField: '_id',      // User _id
+  foreignField: 'buyer',  // Order.buyer references this User
+  justOne: false
+});
 
 
 userSchema.pre('save', async function(next) {
@@ -238,7 +257,8 @@ userSchema.pre('save', async function(next) {
   this.password = await bcrypt.hash(this.password, 12);
   next();
 });
-
+userSchema.set('toObject', { virtuals: true });
+userSchema.set('toJSON', { virtuals: true });
 userSchema.methods.correctPassword = async function(candidatePassword, userPassword) {
   return await bcrypt.compare(candidatePassword, userPassword);
 };

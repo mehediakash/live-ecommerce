@@ -60,6 +60,7 @@ exports.getUserDetails = catchAsync(async (req, res, next) => {
   });
 });
 
+
 exports.updateUserStatus = catchAsync(async (req, res, next) => {
   const { status, reason } = req.body;
   
@@ -81,9 +82,7 @@ exports.updateUserStatus = catchAsync(async (req, res, next) => {
 
   res.status(200).json({
     status: 'success',
-    data: {
-      user
-    }
+    data: { user }
   });
 });
 
