@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Stream = require('../models/Stream');
 const Product = require('../models/Product');
 const IVSService = require('../services/ivsService');
@@ -169,25 +170,28 @@ exports.updateStream = catchAsync(async (req, res, next) => {
     scheduledStart,
     products,
     currentProduct,
-    isChatEnabled
+    isChatEnabled,
+    isRecording
   } = req.body;
-  
+
   const stream = await Stream.findById(req.params.id);
-  
+
   if (!stream) {
     return res.status(404).json({
       status: 'error',
       message: 'Stream not found'
     });
   }
-  
-  // Check if user is the stream owner
+
+  // Check if user is the owner or admin
   if (stream.seller.toString() !== req.user.id && req.user.role !== 'admin') {
     return res.status(403).json({
       status: 'error',
       message: 'You are not authorized to update this stream'
     });
   }
+
+  // Validate category if provided
   if (category) {
     const categoryExists = await Category.findById(category);
     if (!categoryExists) {
@@ -196,27 +200,26 @@ exports.updateStream = catchAsync(async (req, res, next) => {
         message: 'Category not found'
       });
     }
+    stream.category = categoryExists._id;
   }
-  
-  const updatedStream = await Stream.findByIdAndUpdate(
-    req.params.id,
-    {
-      title,
-      description,
-      category,
-      tags: tags ? tags.split(',') : stream.tags,
-      scheduledStart,
-      products,
-      currentProduct,
-      isChatEnabled,
-      ...(req.file && { thumbnail: req.file.path })
-    },
-    {
-      new: true,
-      runValidators: true
-    }
-  );
-  
+
+  // Update fields if provided
+  if (title) stream.title = title;
+  if (description) stream.description = description;
+  if (tags) stream.tags = tags.split(',');
+  if (scheduledStart) stream.scheduledStart = scheduledStart;
+  if (products) stream.products = products;
+  if (currentProduct) stream.currentProduct = currentProduct;
+  if (typeof isChatEnabled !== 'undefined') stream.isChatEnabled = isChatEnabled;
+  if (typeof isRecording !== 'undefined') stream.isRecording = isRecording;
+
+  // ✅ Update thumbnail if new file uploaded, otherwise keep existing
+  if (req.files && req.files.thumbnail && req.files.thumbnail[0]) {
+    stream.thumbnail = req.files.thumbnail[0].path;
+  }
+
+  const updatedStream = await stream.save(); // save changes
+
   res.status(200).json({
     status: 'success',
     data: {
