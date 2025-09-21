@@ -13,7 +13,6 @@ const streamSchema = new mongoose.Schema({
   },
   thumbnail: {
     type: String,
-    required: true
   },
  category: {  // <-- change here
     type: mongoose.Schema.Types.ObjectId,

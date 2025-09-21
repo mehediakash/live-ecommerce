@@ -29,11 +29,14 @@ exports.createStream = catchAsync(async (req, res, next) => {
   }
  
     const ivsChannel = await IVSService.getOrCreateChannel(title);
-
+ let thumbnailPath = 'default-thumbnail.jpg';
+  if (req.files && req.files.thumbnail && req.files.thumbnail[0]) {
+    thumbnailPath = req.files.thumbnail[0].path; // CloudinaryStorage থেকে path পাওয়া যাবে
+  }
   const stream = await Stream.create({
     title,
     description,
-    thumbnail: req.file ? req.file.path : 'default-thumbnail.jpg',
+    thumbnail: thumbnailPath, // ✅ এখানে save হচ্ছে
     category,
     tags: tags ? tags.split(',') : [],
     seller: req.user.id,
@@ -48,6 +51,9 @@ exports.createStream = catchAsync(async (req, res, next) => {
     isChatEnabled,
     isRecording
   });
+
+
+
   
   // Add products to stream
   if (products && products.length > 0) {

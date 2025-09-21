@@ -120,6 +120,7 @@ const uploadConfigs = {
 
   user: createUpload([{ name: 'avatar', maxCount: 1 }]),
   stream: createUpload([{ name: 'thumbnail', maxCount: 1 }]),
+  
   category: createUpload([{ name: 'categoryImage', maxCount: 1 }]),
   training: createUpload([{ name: 'thumbnail', maxCount: 1 }])
 };
